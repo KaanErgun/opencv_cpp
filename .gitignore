@@ -2,3 +2,4 @@
 *.names
 *.cfg
 *.weights
+*.out
