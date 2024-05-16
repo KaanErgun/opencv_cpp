@@ -1,3 +1,5 @@
+// g++ -std=c++17 cow_detection_file.cpp -o cow_detection_file.out -I/usr/include/opencv4 -L/usr/lib/x86_64-linux-gnu -lopencv_core -lopencv_imgproc -lopencv_highgui -lopencv_imgcodecs -lopencv_videoio -lopencv_dnn
+
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <vector>
@@ -34,11 +36,7 @@ int main() {
         return -1;
     }
 
-    cv::namedWindow("YOLO Cow Detection", cv::WINDOW_NORMAL);
-
-    int frameCounter = 0;
-    std::vector<cv::Rect> boxes;
-    std::vector<float> confidences;
+    cv::namedWindow("YOLO Detection", cv::WINDOW_NORMAL);
 
     while (true) {
         cv::Mat frame;
@@ -52,8 +50,10 @@ int main() {
         std::vector<cv::Mat> outs;
         net.forward(outs, net.getUnconnectedOutLayersNames());
 
-        boxes.clear();
-        confidences.clear();
+        std::vector<cv::Rect> boxes;
+        std::vector<float> confidences;
+        std::vector<int> classIds;
+
         for (auto& output : outs) {
             auto* data = (float*)output.data;
             for (int i = 0; i < output.rows; ++i, data += output.cols) {
@@ -61,7 +61,7 @@ int main() {
                 cv::Point classIdPoint;
                 double confidence;
                 cv::minMaxLoc(scores, 0, &confidence, 0, &classIdPoint);
-                if (confidence > 0.5 && classIdPoint.x == 20) { // Assuming cow class index is 20
+                if (confidence > 0.3) {
                     int centerX = (int)(data[0] * frame.cols);
                     int centerY = (int)(data[1] * frame.rows);
                     int width = (int)(data[2] * frame.cols);
@@ -81,28 +81,27 @@ int main() {
                     if (keep) {
                         boxes.push_back(box);
                         confidences.push_back(confidence);
+                        classIds.push_back(classIdPoint.x);
                     }
                 }
             }
         }
 
         for (size_t i = 0; i < boxes.size(); ++i) {
-            rectangle(frame, boxes[i], cv::Scalar(0, 255, 0), 3);
+            rectangle(frame, boxes[i], cv::Scalar(10, 255, 0), 3);
             std::ostringstream ss;
-            ss << "Cow: " << std::fixed << std::setprecision(2) << confidences[i];
+            ss << classes[classIds[i]] << ": " << std::fixed << std::setprecision(2) << confidences[i];
             std::string label = ss.str();
             int baseLine;
             cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
             int top = std::max(boxes[i].y, labelSize.height);
             rectangle(frame, cv::Point(boxes[i].x, top - labelSize.height - 10),
-                      cv::Point(boxes[i].x + labelSize.width, top), cv::Scalar(0, 255, 0), cv::FILLED);
+                      cv::Point(boxes[i].x + labelSize.width, top), cv::Scalar(10, 255, 0), cv::FILLED);
             putText(frame, label, cv::Point(boxes[i].x, top - 5), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
         }
 
-        cv::imshow("YOLO Cow Detection", frame);
+        cv::imshow("YOLO Detection", frame);
         if (cv::waitKey(30) >= 0) break;
-
-        frameCounter++;
     }
 
     cap.release();
