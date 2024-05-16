@@ -114,16 +114,18 @@ int main() {
 
             // Crop and send the car image to OpenALPR
             cv::Mat carImage = frame(boxes[i]);
-            std::vector<unsigned char> buf;
-            cv::imencode(".jpg", carImage, buf);
-            std::string encoded(buf.begin(), buf.end());
+            std::string tempFileName = "temp_car_image.jpg";
+            cv::imwrite(tempFileName, carImage);
 
-            alpr::AlprResults results = openalpr.recognizeEncoded(encoded.c_str(), encoded.size());
+            alpr::AlprResults results = openalpr.recognize(tempFileName);
 
             for (int j = 0; j < results.plates.size(); j++) {
                 alpr::AlprPlateResult plate = results.plates[j];
                 std::cout << "Plate: " << plate.bestPlate.characters << " Confidence: " << plate.bestPlate.overall_confidence << std::endl;
             }
+
+            // Temp file cleanup
+            std::remove(tempFileName.c_str());
         }
 
         cv::imshow("YOLO Car Detection", frame);
