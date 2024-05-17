@@ -101,31 +101,36 @@ int main() {
         }
 
         for (size_t i = 0; i < boxes.size(); ++i) {
-            rectangle(frame, boxes[i], cv::Scalar(0, 255, 0), 3);
-            std::ostringstream ss;
-            ss << "Car: " << std::fixed << std::setprecision(2) << confidences[i];
-            std::string label = ss.str();
-            int baseLine;
-            cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
-            int top = std::max(boxes[i].y, labelSize.height);
-            rectangle(frame, cv::Point(boxes[i].x, top - labelSize.height - 10),
-                      cv::Point(boxes[i].x + labelSize.width, top), cv::Scalar(0, 255, 0), cv::FILLED);
-            putText(frame, label, cv::Point(boxes[i].x, top - 5), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
+            if (boxes[i].x >= 0 && boxes[i].y >= 0 && 
+                boxes[i].x + boxes[i].width <= frame.cols && 
+                boxes[i].y + boxes[i].height <= frame.rows) {
+                
+                rectangle(frame, boxes[i], cv::Scalar(0, 255, 0), 3);
+                std::ostringstream ss;
+                ss << "Car: " << std::fixed << std::setprecision(2) << confidences[i];
+                std::string label = ss.str();
+                int baseLine;
+                cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
+                int top = std::max(boxes[i].y, labelSize.height);
+                rectangle(frame, cv::Point(boxes[i].x, top - labelSize.height - 10),
+                          cv::Point(boxes[i].x + labelSize.width, top), cv::Scalar(0, 255, 0), cv::FILLED);
+                putText(frame, label, cv::Point(boxes[i].x, top - 5), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
 
-            // Crop and send the car image to OpenALPR
-            cv::Mat carImage = frame(boxes[i]);
-            std::string tempFileName = "temp_car_image.jpg";
-            cv::imwrite(tempFileName, carImage);
+                // Crop and send the car image to OpenALPR
+                cv::Mat carImage = frame(boxes[i]);
+                std::string tempFileName = "temp_car_image.jpg";
+                cv::imwrite(tempFileName, carImage);
 
-            alpr::AlprResults results = openalpr.recognize(tempFileName);
+                alpr::AlprResults results = openalpr.recognize(tempFileName);
 
-            for (int j = 0; j < results.plates.size(); j++) {
-                alpr::AlprPlateResult plate = results.plates[j];
-                std::cout << "Plate: " << plate.bestPlate.characters << " Confidence: " << plate.bestPlate.overall_confidence << std::endl;
+                for (int j = 0; j < results.plates.size(); j++) {
+                    alpr::AlprPlateResult plate = results.plates[j];
+                    std::cout << "Plate: " << plate.bestPlate.characters << " Confidence: " << plate.bestPlate.overall_confidence << std::endl;
+                }
+
+                // Temp file cleanup
+                std::remove(tempFileName.c_str());
             }
-
-            // Temp file cleanup
-            std::remove(tempFileName.c_str());
         }
 
         cv::imshow("YOLO Car Detection", frame);
