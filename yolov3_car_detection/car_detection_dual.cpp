@@ -6,6 +6,7 @@
 #include <fstream>
 #include <sstream>
 #include <thread>
+#include <mutex>
 
 float iou(cv::Rect box1, cv::Rect box2) {
     int x1 = std::max(box1.x, box2.x);
@@ -17,7 +18,10 @@ float iou(cv::Rect box1, cv::Rect box2) {
     return (float)intersection / unionArea;
 }
 
-void processCamera(int cameraIndex, const std::string& windowName, cv::dnn::Net& net) {
+std::mutex frameMutex;
+cv::Mat frame1, frame2;
+
+void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame) {
     cv::VideoCapture cap(cameraIndex);
     if (!cap.isOpened()) {
         std::cerr << "Cannot open camera " << cameraIndex << std::endl;
@@ -25,12 +29,12 @@ void processCamera(int cameraIndex, const std::string& windowName, cv::dnn::Net&
     }
 
     while (true) {
-        cv::Mat frame;
-        cap >> frame;
-        if (frame.empty()) break;
+        cv::Mat localFrame;
+        cap >> localFrame;
+        if (localFrame.empty()) break;
 
         cv::Mat blob;
-        cv::dnn::blobFromImage(frame, blob, 1/255.0, cv::Size(416, 416), cv::Scalar(0, 0, 0), true, false);
+        cv::dnn::blobFromImage(localFrame, blob, 1/255.0, cv::Size(416, 416), cv::Scalar(0, 0, 0), true, false);
         net.setInput(blob);
 
         std::vector<cv::Mat> outs;
@@ -46,10 +50,10 @@ void processCamera(int cameraIndex, const std::string& windowName, cv::dnn::Net&
                 double confidence;
                 cv::minMaxLoc(scores, 0, &confidence, 0, &classIdPoint);
                 if (confidence > 0.5 && classIdPoint.x == 2) { // Only for cars
-                    int centerX = (int)(data[0] * frame.cols);
-                    int centerY = (int)(data[1] * frame.rows);
-                    int width = (int)(data[2] * frame.cols);
-                    int height = (int)(data[3] * frame.rows);
+                    int centerX = (int)(data[0] * localFrame.cols);
+                    int centerY = (int)(data[1] * localFrame.rows);
+                    int width = (int)(data[2] * localFrame.cols);
+                    int height = (int)(data[3] * localFrame.rows);
                     int left = centerX - width / 2;
                     int top = centerY - height / 2;
 
@@ -71,20 +75,22 @@ void processCamera(int cameraIndex, const std::string& windowName, cv::dnn::Net&
         }
 
         for (size_t i = 0; i < boxes.size(); ++i) {
-            rectangle(frame, boxes[i], cv::Scalar(0, 255, 0), 3);
+            rectangle(localFrame, boxes[i], cv::Scalar(0, 255, 0), 3);
             std::ostringstream ss;
             ss << "Car: " << std::fixed << std::setprecision(2) << confidences[i];
             std::string label = ss.str();
             int baseLine;
             cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
             int top = std::max(boxes[i].y, labelSize.height);
-            rectangle(frame, cv::Point(boxes[i].x, top - labelSize.height - 10),
+            rectangle(localFrame, cv::Point(boxes[i].x, top - labelSize.height - 10),
                       cv::Point(boxes[i].x + labelSize.width, top), cv::Scalar(0, 255, 0), cv::FILLED);
-            putText(frame, label, cv::Point(boxes[i].x, top - 5), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
+            putText(localFrame, label, cv::Point(boxes[i].x, top - 5), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
         }
 
-        cv::imshow(windowName, frame);
-        if (cv::waitKey(1) == 27) break; // Exit on ESC
+        {
+            std::lock_guard<std::mutex> lock(frameMutex);
+            frame = localFrame.clone();
+        }
     }
 
     cap.release();
@@ -102,8 +108,26 @@ int main() {
     net2.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
     net2.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
 
-    std::thread cam1Thread(processCamera, 0, "Camera 1", std::ref(net1));
-    std::thread cam2Thread(processCamera, 1, "Camera 2", std::ref(net2));
+    std::thread cam1Thread(processCamera, 0, std::ref(net1), std::ref(frame1));
+    std::thread cam2Thread(processCamera, 1, std::ref(net2), std::ref(frame2));
+
+    while (true) {
+        cv::Mat displayFrame1, displayFrame2;
+        {
+            std::lock_guard<std::mutex> lock(frameMutex);
+            if (!frame1.empty()) displayFrame1 = frame1.clone();
+            if (!frame2.empty()) displayFrame2 = frame2.clone();
+        }
+
+        if (!displayFrame1.empty()) {
+            cv::imshow("Camera 1", displayFrame1);
+        }
+        if (!displayFrame2.empty()) {
+            cv::imshow("Camera 2", displayFrame2);
+        }
+
+        if (cv::waitKey(1) == 27) break; // Exit on ESC
+    }
 
     cam1Thread.join();
     cam2Thread.join();
