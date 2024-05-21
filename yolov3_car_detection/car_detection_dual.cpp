@@ -1,3 +1,5 @@
+// g++ -std=c++11 -I/usr/local/include/openalpr -o car_detection_dual.out car_detection_dual.cpp `pkg-config --cflags --libs opencv4` -L/usr/local/lib -lopenalpr -Wl,-rpath,/usr/local/lib
+
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <vector>
