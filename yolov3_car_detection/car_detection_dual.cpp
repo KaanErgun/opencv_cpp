@@ -20,8 +20,9 @@ float iou(cv::Rect box1, cv::Rect box2) {
 
 std::mutex frameMutex;
 cv::Mat frame1, frame2;
+cv::Mat mask1, mask2;
 
-void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame) {
+void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame, cv::Mat& mask) {
     cv::VideoCapture cap(cameraIndex);
     if (!cap.isOpened()) {
         std::cerr << "Cannot open camera " << cameraIndex << std::endl;
@@ -33,8 +34,12 @@ void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame) {
         cap >> localFrame;
         if (localFrame.empty()) break;
 
+        // Apply mask
+        cv::Mat maskedFrame;
+        localFrame.copyTo(maskedFrame, mask);
+
         cv::Mat blob;
-        cv::dnn::blobFromImage(localFrame, blob, 1/255.0, cv::Size(416, 416), cv::Scalar(0, 0, 0), true, false);
+        cv::dnn::blobFromImage(maskedFrame, blob, 1/255.0, cv::Size(416, 416), cv::Scalar(0, 0, 0), true, false);
         net.setInput(blob);
 
         std::vector<cv::Mat> outs;
@@ -96,6 +101,13 @@ void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame) {
     cap.release();
 }
 
+void createMask(cv::Mat& mask, const std::vector<cv::Point>& points) {
+    mask = cv::Mat::zeros(mask.size(), CV_8UC1);
+    std::vector<std::vector<cv::Point>> contours;
+    contours.push_back(points);
+    cv::fillPoly(mask, contours, cv::Scalar(255));
+}
+
 int main() {
     std::string modelConfiguration = "../yolov3/yolov3.cfg";
     std::string modelWeights = "../yolov3/yolov3.weights"; 
@@ -108,8 +120,23 @@ int main() {
     net2.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
     net2.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
 
-    std::thread cam1Thread(processCamera, 0, std::ref(net1), std::ref(frame1));
-    std::thread cam2Thread(processCamera, 1, std::ref(net2), std::ref(frame2));
+    // Define the regions of interest for each camera
+    cv::Mat dummyFrame;
+    cv::VideoCapture cap1(0), cap2(1);
+    cap1 >> dummyFrame;
+    std::vector<cv::Point> roiPoints1 = {cv::Point(0, 0), cv::Point(0, 480), cv::Point(640, 480), cv::Point(640, 0)};
+    cap2 >> dummyFrame;
+    std::vector<cv::Point> roiPoints2 = {cv::Point(0, 0), cv::Point(0, 480), cv::Point(640, 480), cv::Point(640, 0)};
+    cap1.release();
+    cap2.release();
+
+    mask1 = cv::Mat(dummyFrame.size(), CV_8UC1);
+    mask2 = cv::Mat(dummyFrame.size(), CV_8UC1);
+    createMask(mask1, roiPoints1);
+    createMask(mask2, roiPoints2);
+
+    std::thread cam1Thread(processCamera, 0, std::ref(net1), std::ref(frame1), std::ref(mask1));
+    std::thread cam2Thread(processCamera, 1, std::ref(net2), std::ref(frame2), std::ref(mask2));
 
     while (true) {
         cv::Mat displayFrame1, displayFrame2;
