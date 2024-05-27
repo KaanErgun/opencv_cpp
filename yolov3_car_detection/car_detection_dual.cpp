@@ -4,8 +4,6 @@
 #include <opencv2/tracking.hpp>
 #include <iostream>
 #include <vector>
-#include <fstream>
-#include <sstream>
 #include <thread>
 #include <mutex>
 #include <iomanip>
@@ -24,16 +22,113 @@ float iou(cv::Rect box1, cv::Rect box2) {
 std::mutex frameMutex;
 std::mutex fileMutex;
 cv::Mat frame1, frame2;
-cv::Mat mask1, mask2;
 int imageCounter = 0;
 std::chrono::time_point<std::chrono::steady_clock> lastSavedTime = std::chrono::steady_clock::now();
 int carCount1 = 0, carCount2 = 0;
 
-// ROI indices for each camera (0-8, default to center)
-int roiIndex1 = 4;
-int roiIndex2 = 4;
+// ROI binary array (0-8) for each camera
+bool roiBinaryArray1[9] = {false, false, false, false, true, false, false, false, false}; // Center region for camera 1
+bool roiBinaryArray2[9] = {false, false, false, true, true, true, false, false, false};  // Center and middle row for camera 2
 
-void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame, int& carCount, int roiIndex) {
+void drawGridAndROI(cv::Mat& frame, const bool roiBinaryArray[9]) {
+    int cellWidth = frame.cols / 3;
+    int cellHeight = frame.rows / 3;
+
+    for (int i = 0; i < 4; ++i) {
+        cv::line(frame, cv::Point(i * cellWidth, 0), cv::Point(i * cellWidth, frame.rows), cv::Scalar(0, 0, 255), 2);
+        cv::line(frame, cv::Point(0, i * cellHeight), cv::Point(frame.cols, i * cellHeight), cv::Scalar(0, 0, 255), 2);
+    }
+
+    for (int i = 0; i < 9; ++i) {
+        if (roiBinaryArray[i]) {
+            int roiRow = i / 3;
+            int roiCol = i % 3;
+            cv::Rect roi(roiCol * cellWidth, roiRow * cellHeight, cellWidth, cellHeight);
+            cv::rectangle(frame, roi, cv::Scalar(0, 255, 0), 2);
+        }
+    }
+}
+
+void updateTrackers(std::vector<cv::Ptr<cv::Tracker>>& trackers, std::vector<cv::Rect>& trackedBoxes, const cv::Mat& roiFrame) {
+    for (size_t i = 0; i < trackers.size(); ++i) {
+        trackers[i]->update(roiFrame, trackedBoxes[i]);
+    }
+}
+
+void addNewTrackers(std::vector<cv::Ptr<cv::Tracker>>& trackers, std::vector<cv::Rect>& trackedBoxes, const std::vector<cv::Rect>& boxes, const cv::Mat& roiFrame) {
+    for (const auto& box : boxes) {
+        bool found = false;
+        for (const auto& trackedBox : trackedBoxes) {
+            if (iou(box, trackedBox) > 0.5) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            cv::Ptr<cv::Tracker> tracker = cv::TrackerKCF::create();
+            tracker->init(roiFrame, box);
+            trackers.push_back(tracker);
+            trackedBoxes.push_back(box);
+        }
+    }
+}
+
+void processDetections(const std::vector<cv::Mat>& outs, std::vector<cv::Rect>& boxes, std::vector<float>& confidences, const cv::Mat& roiFrame) {
+    for (auto& output : outs) {
+        auto* data = (float*)output.data;
+        for (int i = 0; i < output.rows; ++i, data += output.cols) {
+            cv::Mat scores = output.row(i).colRange(5, output.cols);
+            cv::Point classIdPoint;
+            double confidence;
+            cv::minMaxLoc(scores, 0, &confidence, 0, &classIdPoint);
+            if (confidence > 0.5 && classIdPoint.x == 2) { // Only for cars
+                int centerX = (int)(data[0] * roiFrame.cols);
+                int centerY = (int)(data[1] * roiFrame.rows);
+                int width = (int)(data[2] * roiFrame.cols);
+                int height = (int)(data[3] * roiFrame.rows);
+                int left = centerX - width / 2;
+                int top = centerY - height / 2;
+
+                cv::Rect box(left, top, width, height);
+                float nmsThreshold = 0.4;
+                bool keep = true;
+                for (int j = 0; j < boxes.size(); ++j) {
+                    if (iou(box, boxes[j]) > nmsThreshold) {
+                        keep = false;
+                        break;
+                    }
+                }
+                if (keep) {
+                    boxes.push_back(box);
+                    confidences.push_back(confidence);
+                }
+            }
+        }
+    }
+}
+
+void checkCarStatus(std::vector<cv::Ptr<cv::Tracker>>& trackers, std::vector<cv::Rect>& trackedBoxes, std::vector<int>& carStatus, int& carCount, const cv::Rect& roi) {
+    for (size_t i = 0; i < trackedBoxes.size(); ++i) {
+        cv::Rect absoluteBox = trackedBoxes[i] + cv::Point(roi.x, roi.y); // Convert relative ROI coordinates to absolute coordinates
+
+        if (roi.contains(absoluteBox.tl()) && roi.contains(absoluteBox.br())) {
+            if (carStatus[i] == 0) {
+                carStatus[i] = 1; // Car entered ROI
+            }
+        } else {
+            if (carStatus[i] == 1) {
+                carStatus[i] = 2; // Car exited ROI
+                carCount++;
+                trackers.erase(trackers.begin() + i);
+                trackedBoxes.erase(trackedBoxes.begin() + i);
+                carStatus.erase(carStatus.begin() + i);
+                i--;
+            }
+        }
+    }
+}
+
+void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame, int& carCount, bool roiBinaryArray[9]) {
     cv::VideoCapture cap(cameraIndex);
     if (!cap.isOpened()) {
         std::cerr << "Cannot open camera " << cameraIndex << std::endl;
@@ -42,7 +137,7 @@ void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame, int& carC
 
     std::vector<cv::Ptr<cv::Tracker>> trackers;
     std::vector<cv::Rect> trackedBoxes;
-    std::vector<int> directions;
+    std::vector<int> carStatus; // 0: not in ROI, 1: in ROI, 2: exited ROI
 
     while (true) {
         cv::Mat localFrame;
@@ -53,124 +148,40 @@ void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame, int& carC
         int cellWidth = localFrame.cols / 3;
         int cellHeight = localFrame.rows / 3;
 
-        // Determine the ROI based on roiIndex
-        int roiRow = roiIndex / 3;
-        int roiCol = roiIndex % 3;
-        cv::Rect roi(roiCol * cellWidth, roiRow * cellHeight, cellWidth, cellHeight);
+        drawGridAndROI(localFrame, roiBinaryArray);
 
-        // Draw the grid and ROI
-        for (int i = 0; i < 4; ++i) {
-            cv::line(localFrame, cv::Point(i * cellWidth, 0), cv::Point(i * cellWidth, localFrame.rows), cv::Scalar(0, 0, 255), 2);
-            cv::line(localFrame, cv::Point(0, i * cellHeight), cv::Point(localFrame.cols, i * cellHeight), cv::Scalar(0, 0, 255), 2);
-        }
-        cv::rectangle(localFrame, roi, cv::Scalar(0, 255, 0), 2);
+        for (int i = 0; i < 9; ++i) {
+            if (!roiBinaryArray[i]) continue;
 
-        // Extract the ROI from the frame
-        cv::Mat roiFrame = localFrame(roi);
+            int roiRow = i / 3;
+            int roiCol = i % 3;
+            cv::Rect roi(roiCol * cellWidth, roiRow * cellHeight, cellWidth, cellHeight);
 
-        cv::Mat blob;
-        cv::dnn::blobFromImage(roiFrame, blob, 1/255.0, cv::Size(416, 416), cv::Scalar(0, 0, 0), true, false);
-        net.setInput(blob);
+            // Extract the ROI from the frame
+            cv::Mat roiFrame = localFrame(roi);
 
-        std::vector<cv::Mat> outs;
-        net.forward(outs, net.getUnconnectedOutLayersNames());
+            cv::Mat blob;
+            cv::dnn::blobFromImage(roiFrame, blob, 1/255.0, cv::Size(416, 416), cv::Scalar(0, 0, 0), true, false);
+            net.setInput(blob);
 
-        std::vector<cv::Rect> boxes;
-        std::vector<float> confidences;
-        for (auto& output : outs) {
-            auto* data = (float*)output.data;
-            for (int i = 0; i < output.rows; ++i, data += output.cols) {
-                cv::Mat scores = output.row(i).colRange(5, output.cols);
-                cv::Point classIdPoint;
-                double confidence;
-                cv::minMaxLoc(scores, 0, &confidence, 0, &classIdPoint);
-                if (confidence > 0.5 && classIdPoint.x == 2) { // Only for cars
-                    int centerX = (int)(data[0] * roiFrame.cols);
-                    int centerY = (int)(data[1] * roiFrame.rows);
-                    int width = (int)(data[2] * roiFrame.cols);
-                    int height = (int)(data[3] * roiFrame.rows);
-                    int left = centerX - width / 2;
-                    int top = centerY - height / 2;
+            std::vector<cv::Mat> outs;
+            net.forward(outs, net.getUnconnectedOutLayersNames());
 
-                    cv::Rect box(left, top, width, height);
-                    float nmsThreshold = 0.4;
-                    bool keep = true;
-                    for (int j = 0; j < boxes.size(); ++j) {
-                        if (iou(box, boxes[j]) > nmsThreshold) {
-                            keep = false;
-                            break;
-                        }
-                    }
-                    if (keep) {
-                        boxes.push_back(box);
-                        confidences.push_back(confidence);
-                    }
-                }
-            }
-        }
-
-        // Update trackers
-        for (size_t i = 0; i < trackers.size(); ++i) {
-            trackers[i]->update(roiFrame, trackedBoxes[i]);
-        }
-
-        // Add new trackers for detected boxes
-        for (const auto& box : boxes) {
-            bool found = false;
-            for (const auto& trackedBox : trackedBoxes) {
-                if (iou(box, trackedBox) > 0.5) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                cv::Ptr<cv::Tracker> tracker = cv::TrackerKCF::create();
-                tracker->init(roiFrame, box);
-                trackers.push_back(tracker);
-                trackedBoxes.push_back(box);
-                directions.push_back(0);
-            }
-        }
-
-        // Check for cars crossing the frame vertically
-        for (size_t i = 0; i < trackedBoxes.size(); ++i) {
-            if (directions[i] == 0) {
-                if (trackedBoxes[i].y > roiFrame.rows / 2) {
-                    directions[i] = 1; // Going down
-                } else if (trackedBoxes[i].y < roiFrame.rows / 2) {
-                    directions[i] = -1; // Going up
-                }
-            } else {
-                if ((directions[i] == 1 && trackedBoxes[i].y > roiFrame.rows) ||
-                    (directions[i] == -1 && trackedBoxes[i].y + trackedBoxes[i].height < 0)) {
-                    carCount++;
-                    trackers.erase(trackers.begin() + i);
-                    trackedBoxes.erase(trackedBoxes.begin() + i);
-                    directions.erase(directions.begin() + i);
-                    i--;
-                }
-            }
+            std::vector<cv::Rect> boxes;
+            std::vector<float> confidences;
+            processDetections(outs, boxes, confidences, roiFrame);
+            updateTrackers(trackers, trackedBoxes, roiFrame);
+            addNewTrackers(trackers, trackedBoxes, boxes, roiFrame);
+            checkCarStatus(trackers, trackedBoxes, carStatus, carCount, roi);
         }
 
         auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::seconds>(now - lastSavedTime).count() >= 5 && !boxes.empty()) {
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - lastSavedTime).count() >= 5) {
             std::lock_guard<std::mutex> fileLock(fileMutex);
             std::ostringstream fileName;
             fileName << "frame_" << cameraIndex << "_" << imageCounter++ << ".jpg";
             cv::imwrite(fileName.str(), localFrame);
             lastSavedTime = now;
-        }
-
-        for (size_t i = 0; i < boxes.size(); ++i) {
-            std::ostringstream ss;
-            ss << "Car: " << std::fixed << std::setprecision(2) << confidences[i];
-            std::string label = ss.str();
-            int baseLine;
-            cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
-            int top = std::max(boxes[i].y, labelSize.height);
-            rectangle(roiFrame, cv::Point(boxes[i].x, top - labelSize.height - 10),
-                      cv::Point(boxes[i].x + labelSize.width, top), cv::Scalar(0, 255, 0), cv::FILLED);
-            putText(roiFrame, label, cv::Point(boxes[i].x, top - 5), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
         }
 
         // Display car count on frame
@@ -199,12 +210,8 @@ int main() {
     net2.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
     net2.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
 
-    // Define ROI indices for each camera (0-8)
-    roiIndex1 = 4; // Default to center grid for camera 1
-    roiIndex2 = 4; // Default to center grid for camera 2
-
-    std::thread cam1Thread(processCamera, 0, std::ref(net1), std::ref(frame1), std::ref(carCount1), roiIndex1);
-    std::thread cam2Thread(processCamera, 1, std::ref(net2), std::ref(frame2), std::ref(carCount2), roiIndex2);
+    std::thread cam1Thread(processCamera, 0, std::ref(net1), std::ref(frame1), std::ref(carCount1), roiBinaryArray1);
+    std::thread cam2Thread(processCamera, 1, std::ref(net2), std::ref(frame2), std::ref(carCount2), roiBinaryArray2);
 
     while (true) {
         cv::Mat displayFrame1, displayFrame2;
