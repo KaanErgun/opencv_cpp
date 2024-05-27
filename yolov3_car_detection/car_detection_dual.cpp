@@ -1,4 +1,4 @@
-// g++ -std=c++11 -I/usr/local/include/openalpr -o car_detection_dual.out car_detection_dual.cpp `pkg-config --cflags --libs opencv4` -L/usr/local/lib -lopenalpr -Wl,-rpath,/usr/local/lib
+// g++ -std=c++11 -o car_detection_dual.out car_detection_dual.cpp `pkg-config --cflags --libs opencv4` -L/usr/local/lib
 
 #include <opencv2/opencv.hpp>
 #include <iostream>
@@ -21,6 +21,7 @@ float iou(cv::Rect box1, cv::Rect box2) {
 std::mutex frameMutex;
 cv::Mat frame1, frame2;
 cv::Mat mask1, mask2;
+std::vector<cv::Point> roiPoints1, roiPoints2;
 
 void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame, cv::Mat& mask) {
     cv::VideoCapture cap(cameraIndex);
@@ -124,9 +125,9 @@ int main() {
     cv::Mat dummyFrame;
     cv::VideoCapture cap1(0), cap2(1);
     cap1 >> dummyFrame;
-    std::vector<cv::Point> roiPoints1 = {cv::Point(0, 0), cv::Point(0, 480), cv::Point(640, 480), cv::Point(640, 0)};
+    roiPoints1 = {cv::Point(100, 100), cv::Point(100, 400), cv::Point(500, 400), cv::Point(500, 100)};
     cap2 >> dummyFrame;
-    std::vector<cv::Point> roiPoints2 = {cv::Point(0, 0), cv::Point(0, 480), cv::Point(640, 480), cv::Point(640, 0)};
+    roiPoints2 = {cv::Point(50, 50), cv::Point(50, 450), cv::Point(550, 450), cv::Point(550, 50)};
     cap1.release();
     cap2.release();
 
@@ -147,9 +148,11 @@ int main() {
         }
 
         if (!displayFrame1.empty()) {
+            cv::polylines(displayFrame1, roiPoints1, true, cv::Scalar(0, 0, 255), 2); // Draw ROI for camera 1
             cv::imshow("Camera 1", displayFrame1);
         }
         if (!displayFrame2.empty()) {
+            cv::polylines(displayFrame2, roiPoints2, true, cv::Scalar(0, 0, 255), 2); // Draw ROI for camera 2
             cv::imshow("Camera 2", displayFrame2);
         }
 
