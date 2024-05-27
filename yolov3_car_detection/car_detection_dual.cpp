@@ -7,6 +7,8 @@
 #include <sstream>
 #include <thread>
 #include <mutex>
+#include <iomanip>
+#include <chrono>
 
 float iou(cv::Rect box1, cv::Rect box2) {
     int x1 = std::max(box1.x, box2.x);
@@ -19,9 +21,12 @@ float iou(cv::Rect box1, cv::Rect box2) {
 }
 
 std::mutex frameMutex;
+std::mutex fileMutex;
 cv::Mat frame1, frame2;
 cv::Mat mask1, mask2;
 std::vector<cv::Point> roiPoints1, roiPoints2;
+int imageCounter = 0;
+std::chrono::time_point<std::chrono::steady_clock> lastSavedTime = std::chrono::steady_clock::now();
 
 void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame, cv::Mat& mask) {
     cv::VideoCapture cap(cameraIndex);
@@ -36,6 +41,9 @@ void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame, cv::Mat& 
         if (localFrame.empty()) break;
 
         // Apply mask
+        if (localFrame.size() != mask.size()) {
+            cv::resize(mask, mask, localFrame.size());
+        }
         cv::Mat maskedFrame;
         localFrame.copyTo(maskedFrame, mask);
 
@@ -80,8 +88,16 @@ void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame, cv::Mat& 
             }
         }
 
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - lastSavedTime).count() >= 5 && !boxes.empty()) {
+            std::lock_guard<std::mutex> fileLock(fileMutex);
+            std::ostringstream fileName;
+            fileName << "frame_" << cameraIndex << "_" << imageCounter++ << ".jpg";
+            cv::imwrite(fileName.str(), localFrame);
+            lastSavedTime = now;
+        }
+
         for (size_t i = 0; i < boxes.size(); ++i) {
-            rectangle(localFrame, boxes[i], cv::Scalar(0, 255, 0), 3);
             std::ostringstream ss;
             ss << "Car: " << std::fixed << std::setprecision(2) << confidences[i];
             std::string label = ss.str();
