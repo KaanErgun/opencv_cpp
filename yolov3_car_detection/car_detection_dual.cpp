@@ -27,8 +27,9 @@ cv::Mat mask1, mask2;
 std::vector<cv::Point> roiPoints1, roiPoints2;
 int imageCounter = 0;
 std::chrono::time_point<std::chrono::steady_clock> lastSavedTime = std::chrono::steady_clock::now();
+int carCount1 = 0, carCount2 = 0;
 
-void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame, cv::Mat& mask) {
+void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame, cv::Mat& mask, int& carCount) {
     cv::VideoCapture cap(cameraIndex);
     if (!cap.isOpened()) {
         std::cerr << "Cannot open camera " << cameraIndex << std::endl;
@@ -88,6 +89,10 @@ void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame, cv::Mat& 
             }
         }
 
+        if (!boxes.empty()) {
+            carCount++;
+        }
+
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration_cast<std::chrono::seconds>(now - lastSavedTime).count() >= 5 && !boxes.empty()) {
             std::lock_guard<std::mutex> fileLock(fileMutex);
@@ -108,6 +113,11 @@ void processCamera(int cameraIndex, cv::dnn::Net& net, cv::Mat& frame, cv::Mat& 
                       cv::Point(boxes[i].x + labelSize.width, top), cv::Scalar(0, 255, 0), cv::FILLED);
             putText(localFrame, label, cv::Point(boxes[i].x, top - 5), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
         }
+
+        // Display car count on frame
+        std::ostringstream countLabel;
+        countLabel << "Cars: " << carCount;
+        putText(localFrame, countLabel.str(), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0), 2);
 
         {
             std::lock_guard<std::mutex> lock(frameMutex);
@@ -152,8 +162,8 @@ int main() {
     createMask(mask1, roiPoints1);
     createMask(mask2, roiPoints2);
 
-    std::thread cam1Thread(processCamera, 0, std::ref(net1), std::ref(frame1), std::ref(mask1));
-    std::thread cam2Thread(processCamera, 1, std::ref(net2), std::ref(frame2), std::ref(mask2));
+    std::thread cam1Thread(processCamera, 0, std::ref(net1), std::ref(frame1), std::ref(mask1), std::ref(carCount1));
+    std::thread cam2Thread(processCamera, 1, std::ref(net2), std::ref(frame2), std::ref(mask2), std::ref(carCount2));
 
     while (true) {
         cv::Mat displayFrame1, displayFrame2;
