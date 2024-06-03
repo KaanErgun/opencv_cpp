@@ -10,6 +10,7 @@ This repository showcases a variety of image processing applications developed u
 - **yolov3_car_detection**: Detects cars in video feeds using YOLOv3.
 - **yolov3_cow_detection**: Custom application for detecting cows in agricultural environments.
 - **yolov3_human_detection**: Focused on detecting humans, ideal for security applications.
+- **yolov7_cow_detection**: Custom application for detecting cows in agricultural environments uses YOLO v7 Tiny.
 
 ## Getting Started
 
@@ -32,6 +33,9 @@ g++ -std=c++17 cow_detection_file.cpp -o cow_detection_file.out -I/usr/include/o
 Before running the projects, download the necessary YOLOv3 weights:
 
 [Download YOLOv3 weights](https://drive.google.com/drive/folders/1HVAhRrmSAIatjzEXmyS3QTHweT-l2X-s?usp=sharing)
+
+[Download YOLOv7 weights](https://drive.google.com/drive/folders/1VGOvKT60DOXoBBLe225O7SPN6zoGRRnN?usp=sharing)
+
 
 ## Contribution
 
