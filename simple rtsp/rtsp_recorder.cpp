@@ -13,12 +13,12 @@ int main() {
         return -1;
     }
 
-    // Get the width and height of the frames
-    int frame_width = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_WIDTH));
-    int frame_height = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_HEIGHT));
+    // Set the frame size to 480p
+    int frame_width = 640;  // 480p width
+    int frame_height = 480; // 480p height
 
     // Define the codec and create VideoWriter object to save the video
-    cv::VideoWriter video("output.avi", cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), 10, cv::Size(frame_width, frame_height));
+    cv::VideoWriter video("output_480p.avi", cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), 10, cv::Size(frame_width, frame_height));
 
     if (!video.isOpened()) {
         std::cerr << "Error: Could not open the output video file for write." << std::endl;
@@ -40,6 +40,9 @@ int main() {
             std::cerr << "Error: Frame is empty." << std::endl;
             break;
         }
+
+        // Resize the frame to 480p
+        cv::resize(frame, frame, cv::Size(frame_width, frame_height));
 
         // Write the frame into the file
         video.write(frame);
