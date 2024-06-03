@@ -1,3 +1,5 @@
+// g++ -std=c++11 -o car_detection_dual.out car_detection_dual_threaded.cpp `pkg-config --cflags --libs opencv4` -L/usr/local/lib
+
 #include <opencv2/opencv.hpp>
 #include <opencv2/dnn.hpp>
 #include <iostream>
