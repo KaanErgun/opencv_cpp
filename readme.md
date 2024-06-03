@@ -1,6 +1,6 @@
-# YOLOv3 Image Processing Samples
+# YOLO (v3 v7) Image Processing Samples
 
-This repository showcases a variety of image processing applications developed using the YOLOv3 (You Only Look Once) object detection algorithm, integrated with C++ and OpenCV. Each project is dedicated to different scenarios including object recognition, tracking, and more.
+This repository showcases a variety of image processing applications developed using the YOLO (v3 v7) (You Only Look Once) object detection algorithm, integrated with C++ and OpenCV. Each project is dedicated to different scenarios including object recognition, tracking, and more.
 
 ## Projects
 
