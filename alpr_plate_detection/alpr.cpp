@@ -137,7 +137,7 @@ int main() {
                                     cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
                     }
                 } else {
-                    std::cout << "Camera " << cameraIndex << " No plates detected." << std::endl;
+                    //std::cout << "Camera " << cameraIndex << " No plates detected." << std::endl;
                 }
 
                 cv::imshow("Camera " + std::to_string(cameraIndex), frame);
