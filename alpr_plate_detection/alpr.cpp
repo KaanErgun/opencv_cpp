@@ -21,7 +21,7 @@ cv::Mat preprocessFrame(const cv::Mat& frame) {
     cv::Mat croppedFrame = frame(cropRegion);
 
     cv::Mat resizedFrame;
-    cv::resize(croppedFrame, resizedFrame, cv::Size(600, 600));
+    cv::resize(croppedFrame, resizedFrame, cv::Size(800, 800));
 
     return resizedFrame;
 }
@@ -56,10 +56,10 @@ cv::Mat extractPlateRegion(const cv::Mat& frame) {
     return frame(largestPlate);
 }
 
-void processStream(int cameraIndex, const std::string& country, const std::string& configFile, const std::string& runtimeDataDir, std::vector<alpr::AlprResults>& resultsVec, std::vector<cv::Mat>& framesVec) {
-    cv::VideoCapture cap(cameraIndex);
+void processStream(const std::string& rtsp_url, const std::string& country, const std::string& configFile, const std::string& runtimeDataDir, std::vector<alpr::AlprResults>& resultsVec, std::vector<cv::Mat>& framesVec, int index) {
+    cv::VideoCapture cap(rtsp_url);
     if (!cap.isOpened()) {
-        std::cerr << "Error opening video stream: Camera " << cameraIndex << std::endl;
+        std::cerr << "Error opening video stream: " << rtsp_url << std::endl;
         return;
     }
 
@@ -89,8 +89,8 @@ void processStream(int cameraIndex, const std::string& country, const std::strin
 
                 alpr::AlprResults results = openalpr.recognize(image_data);
 
-                framesVec[cameraIndex] = plateRegion;
-                resultsVec[cameraIndex] = results;
+                framesVec[index] = plateRegion;
+                resultsVec[index] = results;
             }
         }
 
@@ -102,15 +102,17 @@ void processStream(int cameraIndex, const std::string& country, const std::strin
 
 int main() {
     std::string country = "au"; // Avustralya
-    std::string pattern = "act";
     std::string configFile = "/openalpr.conf";
     std::string runtimeDataDir = "/usr/local/share/openalpr/runtime_data";
 
     std::vector<alpr::AlprResults> resultsVec(2);
     std::vector<cv::Mat> framesVec(2);
 
-    std::thread thread1(processStream, 0, country, configFile, runtimeDataDir, std::ref(resultsVec), std::ref(framesVec)); // Webcam 0
-    std::thread thread2(processStream, 1, country, configFile, runtimeDataDir, std::ref(resultsVec), std::ref(framesVec)); // Webcam 1
+    std::string rtsp_url1 = "rtsp://admin:alpDADE2@10.54.41.88:554";
+    std::string rtsp_url2 = "rtsp://admin:alpDADE2@10.54.41.89:554";
+
+    std::thread thread1(processStream, rtsp_url1, country, configFile, runtimeDataDir, std::ref(resultsVec), std::ref(framesVec), 0); // RTSP URL 1
+    std::thread thread2(processStream, rtsp_url2, country, configFile, runtimeDataDir, std::ref(resultsVec), std::ref(framesVec), 1); // RTSP URL 2
 
     while (!stop_thread) {
         for (int cameraIndex = 0; cameraIndex < 2; ++cameraIndex) {
@@ -135,7 +137,7 @@ int main() {
                                     cv::FONT_HERSHEY_SIMPLEX, 0.9, cv::Scalar(0, 255, 0), 2);
                     }
                 } else {
-                    //std::cout << "Camera " << cameraIndex << " No plates detected." << std::endl;
+                    std::cout << "Camera " << cameraIndex << " No plates detected." << std::endl;
                 }
 
                 cv::imshow("Camera " + std::to_string(cameraIndex), frame);
