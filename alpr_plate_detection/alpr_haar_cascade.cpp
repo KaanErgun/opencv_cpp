@@ -13,6 +13,7 @@
 #include <ctime>
 
 std::atomic<bool> stop_thread(false);
+std::atomic<bool> enable_saving(false);
 std::mutex frame_mutex[2];
 std::condition_variable frame_cv[2];
 cv::Mat frames[2];
@@ -95,14 +96,16 @@ void haarCascadeThread(const std::string& rtsp_url, int cameraIndex, cv::Cascade
 
 void saveFramesPeriodically(int cameraIndex) {
     while (!stop_thread) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-        std::lock_guard<std::mutex> lock(frame_mutex[cameraIndex]);
-        if (!raw_frames[cameraIndex].empty() && !masked_frames[cameraIndex].empty()) {
-            std::string raw_filepath = "raw_cam" + std::to_string(cameraIndex) + ".jpg";
-            std::string masked_filepath = "masked_cam" + std::to_string(cameraIndex) + ".jpg";
+        std::this_thread::sleep_for(std::chrono::minutes(1));
+        if (enable_saving) {
+            std::lock_guard<std::mutex> lock(frame_mutex[cameraIndex]);
+            if (!raw_frames[cameraIndex].empty() && !masked_frames[cameraIndex].empty()) {
+                std::string raw_filepath = "raw_cam" + std::to_string(cameraIndex) + ".jpg";
+                std::string masked_filepath = "masked_cam" + std::to_string(cameraIndex) + ".jpg";
 
-            cv::imwrite(raw_filepath, raw_frames[cameraIndex]);
-            cv::imwrite(masked_filepath, masked_frames[cameraIndex]);
+                cv::imwrite(raw_filepath, raw_frames[cameraIndex]);
+                cv::imwrite(masked_filepath, masked_frames[cameraIndex]);
+            }
         }
     }
 }
@@ -111,22 +114,24 @@ void saveDetectedFrames(int cameraIndex, const std::string& raw_image, const std
     std::unique_lock<std::mutex> lock(frame_mutex[cameraIndex]);
     frame_cv[cameraIndex].wait(lock, [&]{ return new_frame[cameraIndex]; });
 
-    cv::Mat raw_frame = raw_frames[cameraIndex];
-    cv::Mat masked_frame = masked_frames[cameraIndex];
-    new_frame[cameraIndex] = false;
-    lock.unlock();
+    if (enable_saving) {
+        cv::Mat raw_frame = raw_frames[cameraIndex];
+        cv::Mat masked_frame = masked_frames[cameraIndex];
+        new_frame[cameraIndex] = false;
+        lock.unlock();
 
-    std::time_t now = std::time(nullptr);
-    std::tm* local_time = std::localtime(&now);
+        std::time_t now = std::time(nullptr);
+        std::tm* local_time = std::localtime(&now);
 
-    char timestamp[20];
-    std::strftime(timestamp, sizeof(timestamp), "%Y%m%d%H%M%S", local_time);
+        char timestamp[20];
+        std::strftime(timestamp, sizeof(timestamp), "%Y%m%d%H%M%S", local_time);
 
-    std::string raw_filepath = raw_image + "_" + timestamp + ".jpg";
-    std::string masked_filepath = masked_image + "_" + timestamp + ".jpg";
+        std::string raw_filepath = raw_image + "_" + timestamp + ".jpg";
+        std::string masked_filepath = masked_image + "_" + timestamp + ".jpg";
 
-    cv::imwrite(raw_filepath, raw_frame);
-    cv::imwrite(masked_filepath, masked_frame);
+        cv::imwrite(raw_filepath, raw_frame);
+        cv::imwrite(masked_filepath, masked_frame);
+    }
 }
 
 void openALPRThread(int cameraIndex, const std::string& country, const std::string& configFile, const std::string& runtimeDataDir) {
@@ -176,7 +181,28 @@ void openALPRThread(int cameraIndex, const std::string& country, const std::stri
     }
 }
 
-int main() {
+void handleUserInput() {
+    char input;
+    while (!stop_thread) {
+        std::cin >> input;
+        if (input == 'e') {
+            enable_saving = true;
+            std::cout << "Saving enabled." << std::endl;
+        } else if (input == 'd') {
+            enable_saving = false;
+            std::cout << "Saving disabled." << std::endl;
+        }
+    }
+}
+
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <e|d>" << std::endl;
+        return -1;
+    }
+
+    enable_saving = (argv[1][0] == 'e');
+
     std::string country = "au"; // Avustralya
     std::string configFile = "openalpr.conf";
     std::string runtimeDataDir = "/usr/local/share/openalpr/runtime_data";
@@ -203,12 +229,15 @@ int main() {
     saveThreads[0] = std::thread(saveFramesPeriodically, 0);
     saveThreads[1] = std::thread(saveFramesPeriodically, 1);
 
+    std::thread userInputThread(handleUserInput);
+
     for (int i = 0; i < 2; ++i) {
         haarThreads[i].join();
         alprThreads[i].join();
         saveThreads[i].join();
     }
 
+    userInputThread.join();
     cv::destroyAllWindows();
     return 0;
 }
