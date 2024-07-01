@@ -17,16 +17,26 @@ std::condition_variable frame_cv[2];
 cv::Mat frames[2];
 bool new_frame[2] = {false, false};
 
-cv::Mat preprocessFrame(const cv::Mat& frame) {
+cv::Mat preprocessFrame(const cv::Mat& frame, int cameraIndex) {
     int width = frame.cols;
     int height = frame.rows;
+
+    cv::Mat mask = cv::Mat::zeros(height, width, frame.type());
+    if (cameraIndex == 0) { // 88 ile biten kamera
+        cv::rectangle(mask, cv::Rect(width / 4, 0, 3 * width / 4, height), cv::Scalar(255, 255, 255), cv::FILLED);
+    } else if (cameraIndex == 1) { // 89 ile biten kamera
+        cv::rectangle(mask, cv::Rect(3 * width / 4, 0, width / 4, height), cv::Scalar(255, 255, 255), cv::FILLED);
+    }
+
+    cv::Mat maskedFrame;
+    frame.copyTo(maskedFrame, mask);
 
     int cropSize = std::min(width, height);
     int xOffset = (width - cropSize) / 2;
     int yOffset = (height - cropSize) / 2;
 
     cv::Rect cropRegion(xOffset, yOffset, cropSize, cropSize);
-    cv::Mat croppedFrame = frame(cropRegion);
+    cv::Mat croppedFrame = maskedFrame(cropRegion);
 
     cv::Mat resizedFrame;
     cv::resize(croppedFrame, resizedFrame, cv::Size(800, 800));
@@ -66,7 +76,7 @@ void haarCascadeThread(const std::string& rtsp_url, int cameraIndex, cv::Cascade
         cap >> frame;
         if (frame.empty()) continue;
 
-        cv::Mat processedFrame = preprocessFrame(frame);
+        cv::Mat processedFrame = preprocessFrame(frame, cameraIndex);
         cv::Mat plateRegion = extractPlateRegion(processedFrame, plate_cascade);
 
         if (!plateRegion.empty()) {
