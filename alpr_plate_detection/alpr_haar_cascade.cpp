@@ -79,9 +79,6 @@ void haarCascadeThread(const std::string& rtsp_url, int cameraIndex, cv::Cascade
         cv::Mat plateRegion = extractPlateRegion(processedFrame, plate_cascade);
 
         if (!plateRegion.empty()) {
-            std::string filename = "cam" + std::to_string(cameraIndex) + ".jpg";
-            cv::imwrite(filename, plateRegion);
-
             {
                 std::lock_guard<std::mutex> lock(frame_mutex[cameraIndex]);
                 frames[cameraIndex] = plateRegion;
@@ -96,20 +93,40 @@ void haarCascadeThread(const std::string& rtsp_url, int cameraIndex, cv::Cascade
     cap.release();
 }
 
-void saveFramesPeriodically() {
+void saveFramesPeriodically(int cameraIndex) {
     while (!stop_thread) {
-        std::this_thread::sleep_for(std::chrono::minutes(1));
-        for (int i = 0; i < 2; ++i) {
-            std::lock_guard<std::mutex> lock(frame_mutex[i]);
-            if (!raw_frames[i].empty() && !masked_frames[i].empty()) {
-                std::string raw_filepath = "raw_cam" + std::to_string(i) + ".jpg";
-                std::string masked_filepath = "masked_cam" + std::to_string(i) + ".jpg";
+        std::this_thread::sleep_for(std::chrono::second(1));
+        std::lock_guard<std::mutex> lock(frame_mutex[cameraIndex]);
+        if (!raw_frames[cameraIndex].empty() && !masked_frames[cameraIndex].empty()) {
+            std::string raw_filepath = "raw_cam" + std::to_string(cameraIndex) + ".jpg";
+            std::string masked_filepath = "masked_cam" + std::to_string(cameraIndex) + ".jpg";
 
-                cv::imwrite(raw_filepath, raw_frames[i]);
-                cv::imwrite(masked_filepath, masked_frames[i]);
-            }
+            cv::imwrite(raw_filepath, raw_frames[cameraIndex]);
+            cv::imwrite(masked_filepath, masked_frames[cameraIndex]);
         }
     }
+}
+
+void saveDetectedFrames(int cameraIndex, const std::string& raw_image, const std::string& masked_image) {
+    std::unique_lock<std::mutex> lock(frame_mutex[cameraIndex]);
+    frame_cv[cameraIndex].wait(lock, [&]{ return new_frame[cameraIndex]; });
+
+    cv::Mat raw_frame = raw_frames[cameraIndex];
+    cv::Mat masked_frame = masked_frames[cameraIndex];
+    new_frame[cameraIndex] = false;
+    lock.unlock();
+
+    std::time_t now = std::time(nullptr);
+    std::tm* local_time = std::localtime(&now);
+
+    char timestamp[20];
+    std::strftime(timestamp, sizeof(timestamp), "%Y%m%d%H%M%S", local_time);
+
+    std::string raw_filepath = raw_image + "_" + timestamp + ".jpg";
+    std::string masked_filepath = masked_image + "_" + timestamp + ".jpg";
+
+    cv::imwrite(raw_filepath, raw_frame);
+    cv::imwrite(masked_filepath, masked_frame);
 }
 
 void openALPRThread(int cameraIndex, const std::string& country, const std::string& configFile, const std::string& runtimeDataDir) {
@@ -141,17 +158,10 @@ void openALPRThread(int cameraIndex, const std::string& country, const std::stri
                 max_confidence = plate.bestPlate.overall_confidence;
                 best_plate = plate.bestPlate.characters;
 
-                std::time_t now = std::time(nullptr);
-                std::tm* local_time = std::localtime(&now);
+                std::string raw_filepath = "detected_raw_cam" + std::to_string(cameraIndex);
+                std::string masked_filepath = "detected_masked_cam" + std::to_string(cameraIndex);
 
-                char timestamp[20];
-                std::strftime(timestamp, sizeof(timestamp), "%Y%m%d%H%M%S", local_time);
-
-                std::string raw_filepath = "detected_raw_cam" + std::to_string(cameraIndex) + "_" + timestamp + ".jpg";
-                std::string masked_filepath = "detected_masked_cam" + std::to_string(cameraIndex) + "_" + timestamp + ".jpg";
-
-                cv::imwrite(raw_filepath, raw_frames[cameraIndex]);
-                cv::imwrite(masked_filepath, masked_frames[cameraIndex]);
+                std::thread(saveDetectedFrames, cameraIndex, raw_filepath, masked_filepath).detach();
             }
         }
 
@@ -183,20 +193,22 @@ int main() {
 
     std::thread haarThreads[2];
     std::thread alprThreads[2];
+    std::thread saveThreads[2];
 
     haarThreads[0] = std::thread(haarCascadeThread, rtsp_url1, 0, std::ref(plate_cascade));
     haarThreads[1] = std::thread(haarCascadeThread, rtsp_url2, 1, std::ref(plate_cascade));
     alprThreads[0] = std::thread(openALPRThread, 0, country, configFile, runtimeDataDir);
     alprThreads[1] = std::thread(openALPRThread, 1, country, configFile, runtimeDataDir);
 
-    std::thread saveThread(saveFramesPeriodically);
+    saveThreads[0] = std::thread(saveFramesPeriodically, 0);
+    saveThreads[1] = std::thread(saveFramesPeriodically, 1);
 
     for (int i = 0; i < 2; ++i) {
         haarThreads[i].join();
         alprThreads[i].join();
+        saveThreads[i].join();
     }
 
-    saveThread.join();
     cv::destroyAllWindows();
     return 0;
 }
