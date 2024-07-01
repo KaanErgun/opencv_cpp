@@ -10,6 +10,7 @@
 #include <limits>
 #include <condition_variable>
 #include <chrono>
+#include <ctime>
 
 std::atomic<bool> stop_thread(false);
 std::mutex frame_mutex[2];
@@ -97,7 +98,7 @@ void haarCascadeThread(const std::string& rtsp_url, int cameraIndex, cv::Cascade
 
 void saveFramesPeriodically() {
     while (!stop_thread) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::minutes(1));
         for (int i = 0; i < 2; ++i) {
             std::lock_guard<std::mutex> lock(frame_mutex[i]);
             if (!raw_frames[i].empty() && !masked_frames[i].empty()) {
@@ -139,6 +140,18 @@ void openALPRThread(int cameraIndex, const std::string& country, const std::stri
             if (plate.bestPlate.overall_confidence > max_confidence) {
                 max_confidence = plate.bestPlate.overall_confidence;
                 best_plate = plate.bestPlate.characters;
+
+                std::time_t now = std::time(nullptr);
+                std::tm* local_time = std::localtime(&now);
+
+                char timestamp[20];
+                std::strftime(timestamp, sizeof(timestamp), "%Y%m%d%H%M%S", local_time);
+
+                std::string raw_filepath = "detected_raw_cam" + std::to_string(cameraIndex) + "_" + timestamp + ".jpg";
+                std::string masked_filepath = "detected_masked_cam" + std::to_string(cameraIndex) + "_" + timestamp + ".jpg";
+
+                cv::imwrite(raw_filepath, raw_frames[cameraIndex]);
+                cv::imwrite(masked_filepath, masked_frames[cameraIndex]);
             }
         }
 
