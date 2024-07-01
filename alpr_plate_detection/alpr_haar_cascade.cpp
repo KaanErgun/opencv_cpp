@@ -10,6 +10,7 @@
 #include <limits>
 #include <condition_variable>
 #include <chrono>
+#include <ctime>
 
 std::atomic<bool> stop_thread(false);
 std::mutex frame_mutex[2];
@@ -95,6 +96,30 @@ void haarCascadeThread(const std::string& rtsp_url, int cameraIndex, cv::Cascade
     cap.release();
 }
 
+void saveFramesPeriodically() {
+    while (!stop_thread) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        for (int i = 0; i < 2; ++i) {
+            std::lock_guard<std::mutex> lock(frame_mutex[i]);
+            if (!raw_frames[i].empty() && !masked_frames[i].empty()) {
+                std::time_t now = std::time(nullptr);
+                std::tm* local_time = std::localtime(&now);
+
+                char raw_filename[50];
+                char masked_filename[50];
+                std::strftime(raw_filename, sizeof(raw_filename), "raw_cam%d_%Y%m%d%H%M%S.jpg", local_time);
+                std::strftime(masked_filename, sizeof(masked_filename), "masked_cam%d_%Y%m%d%H%M%S.jpg", local_time);
+
+                std::string raw_filepath = std::string(raw_filename).replace(7, 1, std::to_string(i));
+                std::string masked_filepath = std::string(masked_filename).replace(9, 1, std::to_string(i));
+
+                cv::imwrite(raw_filepath, raw_frames[i]);
+                cv::imwrite(masked_filepath, masked_frames[i]);
+            }
+        }
+    }
+}
+
 void openALPRThread(int cameraIndex, const std::string& country, const std::string& configFile, const std::string& runtimeDataDir) {
     alpr::Alpr openalpr(country, configFile, runtimeDataDir);
     if (!openalpr.isLoaded()) {
@@ -160,30 +185,14 @@ int main() {
     alprThreads[0] = std::thread(openALPRThread, 0, country, configFile, runtimeDataDir);
     alprThreads[1] = std::thread(openALPRThread, 1, country, configFile, runtimeDataDir);
 
-    while (!stop_thread) {
-        for (int i = 0; i < 2; ++i) {
-            std::lock_guard<std::mutex> lock(frame_mutex[i]);
-            if (!raw_frames[i].empty()) {
-                cv::Mat raw_resized, masked_resized;
-                cv::resize(raw_frames[i], raw_resized, cv::Size(), 0.125, 0.125); // 1/8 çözünürlükte
-                cv::resize(masked_frames[i], masked_resized, cv::Size(), 0.125, 0.125); // 1/8 çözünürlükte
-
-                cv::imshow("Raw Camera " + std::to_string(i), raw_resized);
-                cv::imshow("Masked Camera " + std::to_string(i), masked_resized);
-            }
-        }
-
-        if (cv::waitKey(10) == 27) {
-            stop_thread = true;
-            break;
-        }
-    }
+    std::thread saveThread(saveFramesPeriodically);
 
     for (int i = 0; i < 2; ++i) {
         haarThreads[i].join();
         alprThreads[i].join();
     }
 
+    saveThread.join();
     cv::destroyAllWindows();
     return 0;
 }
