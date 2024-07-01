@@ -33,17 +33,7 @@ cv::Mat preprocessFrame(const cv::Mat& frame, int cameraIndex) {
     cv::Mat maskedFrame;
     frame.copyTo(maskedFrame, mask);
 
-    int cropSize = std::min(width, height);
-    int xOffset = (width - cropSize) / 2;
-    int yOffset = (height - cropSize) / 2;
-
-    cv::Rect cropRegion(xOffset, yOffset, cropSize, cropSize);
-    cv::Mat croppedFrame = maskedFrame(cropRegion);
-
-    cv::Mat resizedFrame;
-    cv::resize(croppedFrame, resizedFrame, cv::Size(800, 800));
-
-    return resizedFrame;
+    return maskedFrame;
 }
 
 cv::Mat extractPlateRegion(const cv::Mat& frame, cv::CascadeClassifier& plate_cascade) {
