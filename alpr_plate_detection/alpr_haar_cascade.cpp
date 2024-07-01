@@ -10,7 +10,6 @@
 #include <limits>
 #include <condition_variable>
 #include <chrono>
-#include <ctime>
 
 std::atomic<bool> stop_thread(false);
 std::mutex frame_mutex[2];
@@ -102,16 +101,8 @@ void saveFramesPeriodically() {
         for (int i = 0; i < 2; ++i) {
             std::lock_guard<std::mutex> lock(frame_mutex[i]);
             if (!raw_frames[i].empty() && !masked_frames[i].empty()) {
-                std::time_t now = std::time(nullptr);
-                std::tm* local_time = std::localtime(&now);
-
-                char raw_filename[50];
-                char masked_filename[50];
-                std::strftime(raw_filename, sizeof(raw_filename), "raw_cam%d_%Y%m%d%H%M%S.jpg", local_time);
-                std::strftime(masked_filename, sizeof(masked_filename), "masked_cam%d_%Y%m%d%H%M%S.jpg", local_time);
-
-                std::string raw_filepath = std::string(raw_filename).replace(7, 1, std::to_string(i));
-                std::string masked_filepath = std::string(masked_filename).replace(9, 1, std::to_string(i));
+                std::string raw_filepath = "raw_cam" + std::to_string(i) + ".jpg";
+                std::string masked_filepath = "masked_cam" + std::to_string(i) + ".jpg";
 
                 cv::imwrite(raw_filepath, raw_frames[i]);
                 cv::imwrite(masked_filepath, masked_frames[i]);
