@@ -15,6 +15,8 @@ std::atomic<bool> stop_thread(false);
 std::mutex frame_mutex[2];
 std::condition_variable frame_cv[2];
 cv::Mat frames[2];
+cv::Mat raw_frames[2];
+cv::Mat masked_frames[2];
 bool new_frame[2] = {false, false};
 
 cv::Mat preprocessFrame(const cv::Mat& frame, int cameraIndex) {
@@ -75,6 +77,12 @@ void haarCascadeThread(const std::string& rtsp_url, int cameraIndex, cv::Cascade
         cv::Mat frame;
         cap >> frame;
         if (frame.empty()) continue;
+
+        {
+            std::lock_guard<std::mutex> lock(frame_mutex[cameraIndex]);
+            raw_frames[cameraIndex] = frame.clone();
+            masked_frames[cameraIndex] = preprocessFrame(frame, cameraIndex);
+        }
 
         cv::Mat processedFrame = preprocessFrame(frame, cameraIndex);
         cv::Mat plateRegion = extractPlateRegion(processedFrame, plate_cascade);
@@ -165,8 +173,13 @@ int main() {
     while (!stop_thread) {
         for (int i = 0; i < 2; ++i) {
             std::lock_guard<std::mutex> lock(frame_mutex[i]);
-            if (!frames[i].empty()) {
-                cv::imshow("Camera " + std::to_string(i), frames[i]);
+            if (!raw_frames[i].empty()) {
+                cv::Mat raw_resized, masked_resized;
+                cv::resize(raw_frames[i], raw_resized, cv::Size(), 0.125, 0.125); // 1/8 çözünürlükte
+                cv::resize(masked_frames[i], masked_resized, cv::Size(), 0.125, 0.125); // 1/8 çözünürlükte
+
+                cv::imshow("Raw Camera " + std::to_string(i), raw_resized);
+                cv::imshow("Masked Camera " + std::to_string(i), masked_resized);
             }
         }
 
