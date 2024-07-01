@@ -54,10 +54,10 @@ cv::Mat extractPlateRegion(const cv::Mat& frame, cv::CascadeClassifier& plate_ca
     return frame(largestPlate);
 }
 
-void haarCascadeThread(int cameraIndex, cv::CascadeClassifier& plate_cascade) {
-    cv::VideoCapture cap(cameraIndex);
+void haarCascadeThread(const std::string& rtsp_url, int cameraIndex, cv::CascadeClassifier& plate_cascade) {
+    cv::VideoCapture cap(rtsp_url);
     if (!cap.isOpened()) {
-        std::cerr << "Error opening video stream: " << cameraIndex << std::endl;
+        std::cerr << "Error opening video stream: " << rtsp_url << std::endl;
         return;
     }
 
@@ -141,13 +141,16 @@ int main() {
         return -1;
     }
 
+    std::string rtsp_url1 = "rtsp://admin:alpDADE2@10.54.41.88:554";
+    std::string rtsp_url2 = "rtsp://admin:alpDADE2@10.54.41.89:554";
+
     std::thread haarThreads[2];
     std::thread alprThreads[2];
 
-    for (int i = 0; i < 2; ++i) {
-        haarThreads[i] = std::thread(haarCascadeThread, i, std::ref(plate_cascade));
-        alprThreads[i] = std::thread(openALPRThread, i, country, configFile, runtimeDataDir);
-    }
+    haarThreads[0] = std::thread(haarCascadeThread, rtsp_url1, 0, std::ref(plate_cascade));
+    haarThreads[1] = std::thread(haarCascadeThread, rtsp_url2, 1, std::ref(plate_cascade));
+    alprThreads[0] = std::thread(openALPRThread, 0, country, configFile, runtimeDataDir);
+    alprThreads[1] = std::thread(openALPRThread, 1, country, configFile, runtimeDataDir);
 
     while (!stop_thread) {
         for (int i = 0; i < 2; ++i) {
