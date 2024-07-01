@@ -95,7 +95,7 @@ void haarCascadeThread(const std::string& rtsp_url, int cameraIndex, cv::Cascade
 
 void saveFramesPeriodically(int cameraIndex) {
     while (!stop_thread) {
-        std::this_thread::sleep_for(std::chrono::second(1));
+        std::this_thread::sleep_for(std::chrono::seconds(1));
         std::lock_guard<std::mutex> lock(frame_mutex[cameraIndex]);
         if (!raw_frames[cameraIndex].empty() && !masked_frames[cameraIndex].empty()) {
             std::string raw_filepath = "raw_cam" + std::to_string(cameraIndex) + ".jpg";
