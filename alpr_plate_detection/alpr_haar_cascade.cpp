@@ -27,7 +27,7 @@ cv::Mat preprocessFrame(const cv::Mat& frame, int cameraIndex) {
     if (cameraIndex == 0) { // 88 ile biten kamera
         cv::rectangle(mask, cv::Rect(width / 4, 0, 3 * width / 4, height), cv::Scalar(255, 255, 255), cv::FILLED);
     } else if (cameraIndex == 1) { // 89 ile biten kamera
-        cv::rectangle(mask, cv::Rect(3 * width / 4, 0, width / 4, height), cv::Scalar(255, 255, 255), cv::FILLED);
+        cv::rectangle(mask, cv::Rect(5 * width / 8, 0, 3 * width / 8, height), cv::Scalar(255, 255, 255), cv::FILLED);
     }
 
     cv::Mat maskedFrame;
