@@ -1,15 +1,26 @@
-// g++ -std=c++11 -o main.out main.cpp `pkg-config --cflags --libs opencv4`
-
 #include <opencv2/opencv.hpp>
 #include <opencv2/dnn/dnn.hpp>
 #include <iostream>
+#include <vector>
+#include <iomanip>
+#include <cmath>
 
 using namespace cv;
 using namespace std;
 
+// Normalize confidence score to 0-1 range
+float normalizeConfidence(float score) {
+    // Apply sigmoid function to map any real number to 0-1 range
+    return 1.0f / (1.0f + exp(-score));
+}
+
 int main() {
     // Load the ONNX model
     dnn::Net net = dnn::readNetFromONNX("best.onnx");
+    if (net.empty()) {
+        cerr << "Error: Could not load the ONNX model." << endl;
+        return -1;
+    }
 
     // Open a connection to the webcam (0 is usually the default camera)
     VideoCapture cap(0);
@@ -19,7 +30,7 @@ int main() {
     }
 
     // Object names
-    vector<string> class_names = {"Unknown", "Plaka"};
+    vector<string> class_names = {"Araba", "Plaka"};
 
     // Main loop to process each frame from the webcam
     while (true) {
@@ -32,31 +43,77 @@ int main() {
         }
 
         // Create a blob from the image
-        Mat blob = dnn::blobFromImage(frame, 1/255.0, Size(640, 640), Scalar(0, 0, 0), true, false);
+        Mat blob = dnn::blobFromImage(frame, 1/255.0, Size(640, 640), Scalar(), true, false);
 
         // Set the input to the network
         net.setInput(blob);
 
         // Run the forward pass
-        Mat detections = net.forward();
+        Mat output = net.forward();
 
-        // Process the detections (example for YOLOv5, might need to adjust based on your model)
-        for (int i = 0; i < detections.rows; ++i) {
-            float confidence = detections.at<float>(i, 4);
-            if (confidence > 0.5) {  // Adjust the confidence threshold as needed
-                int class_id = static_cast<int>(detections.at<float>(i, 5));
-                float x = detections.at<float>(i, 0) * frame.cols;
-                float y = detections.at<float>(i, 1) * frame.rows;
-                float width = detections.at<float>(i, 2) * frame.cols;
-                float height = detections.at<float>(i, 3) * frame.rows;
+        // Debug output
+        cout << "Output shape: " << output.size << endl;
+
+        // Process the detections
+        vector<Rect> boxes;
+        vector<float> confidences;
+        vector<int> class_ids;
+
+        int rows = output.size[2];
+        int dimensions = output.size[1];
+
+        output = output.reshape(1, rows);
+
+        for (int i = 0; i < rows; ++i) {
+            float* row = output.ptr<float>(i);
+            
+            float confidence = normalizeConfidence(row[4]);
+            if (confidence > 0.25) {  // Pre-filtering threshold
+                float* classes_scores = row + 5;
+                Mat scores(1, class_names.size(), CV_32FC1, classes_scores);
+                Point class_id;
+                double max_class_score;
+                minMaxLoc(scores, 0, &max_class_score, 0, &class_id);
                 
-                Rect box((int)(x - width / 2), (int)(y - height / 2), (int)width, (int)height);
-                rectangle(frame, box, Scalar(0, 255, 0), 2);
-                putText(frame, class_names[class_id], Point(box.x, box.y - 10), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 255, 0), 2);
-
-                // Print the detected object name to the terminal
-                cout << "Detected: " << class_names[class_id] << endl;
+                max_class_score = normalizeConfidence(max_class_score);
+                
+                if (max_class_score > 0.25) {  // Class score threshold
+                    confidences.push_back(confidence * max_class_score);  // Combined score
+                    class_ids.push_back(class_id.x);
+                    
+                    float x = row[0];
+                    float y = row[1];
+                    float w = row[2];
+                    float h = row[3];
+                    
+                    int left = int((x - 0.5 * w) * frame.cols);
+                    int top = int((y - 0.5 * h) * frame.rows);
+                    int width = int(w * frame.cols);
+                    int height = int(h * frame.rows);
+                    
+                    boxes.push_back(Rect(left, top, width, height));
+                }
             }
+        }
+
+        // Perform Non-Maximum Suppression
+        vector<int> indices;
+        dnn::NMSBoxes(boxes, confidences, 0.5, 0.4, indices);
+
+        // Draw detections
+        for (int idx : indices) {
+            Rect box = boxes[idx];
+            int class_id = class_ids[idx];
+            float conf = confidences[idx];
+            
+            rectangle(frame, box, Scalar(0, 255, 0), 2);
+            stringstream ss;
+            ss << class_names[class_id] << ": " << fixed << setprecision(2) << conf * 100 << "%";
+            string label = ss.str();
+            putText(frame, label, Point(box.x, box.y - 10), FONT_HERSHEY_SIMPLEX, 0.5, Scalar(0, 255, 0), 2);
+
+            // Print the detected object name to the terminal
+            cout << "Detected: " << label << endl;
         }
 
         // Display the frame with detections

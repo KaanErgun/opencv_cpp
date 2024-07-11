@@ -1,5 +1,3 @@
-// g++ -std=c++11 -I/usr/local/include/openalpr -o alpr_haar_cascade.out alpr_haar_cascade.cpp `pkg-config --cflags --libs opencv4` -L/usr/local/lib -lopenalpr -Wl,-rpath,/usr/local/lib
-
 #include <alpr.h>
 #include <opencv2/opencv.hpp>
 #include <opencv2/objdetect.hpp>
@@ -11,6 +9,7 @@
 #include <condition_variable>
 #include <chrono>
 #include <ctime>
+#include <iomanip>
 
 std::atomic<bool> stop_thread(false);
 std::atomic<bool> enable_saving(false);
@@ -25,11 +24,11 @@ cv::Mat preprocessFrame(const cv::Mat& frame, int cameraIndex) {
     int width = frame.cols;
     int height = frame.rows;
 
-    cv::Mat mask = cv::Mat::zeros(height, width, frame.type());
-    if (cameraIndex == 0) { // 88 ile biten kamera
-        cv::rectangle(mask, cv::Rect(width / 4, 0, 3 * width / 4, height), cv::Scalar(255, 255, 255), cv::FILLED);
-    } else if (cameraIndex == 1) { // 89 ile biten kamera
-        cv::rectangle(mask, cv::Rect(5 * width / 8, 0, 3 * width / 8, height), cv::Scalar(255, 255, 255), cv::FILLED);
+    cv::Mat mask = cv::Mat::zeros(height, width, CV_8UC1);
+    if (cameraIndex == 0) {
+        cv::rectangle(mask, cv::Rect(width / 4, 0, width / 2, height), cv::Scalar(255), cv::FILLED);
+    } else if (cameraIndex == 1) {
+        cv::rectangle(mask, cv::Rect(5 * width / 8, 0, 3 * width / 8, height), cv::Scalar(255), cv::FILLED);
     }
 
     cv::Mat maskedFrame;
@@ -45,15 +44,14 @@ cv::Mat extractPlateRegion(const cv::Mat& frame, cv::CascadeClassifier& plate_ca
     cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
     cv::equalizeHist(gray, gray);
 
-    plate_cascade.detectMultiScale(gray, plates);
+    plate_cascade.detectMultiScale(gray, plates, 1.1, 3, 0, cv::Size(30, 30));
 
     if (plates.empty()) {
         return cv::Mat();
     }
 
-    cv::Rect largestPlate = *std::max_element(plates.begin(), plates.end(), [](const cv::Rect& a, const cv::Rect& b) {
-        return a.area() < b.area();
-    });
+    cv::Rect largestPlate = *std::max_element(plates.begin(), plates.end(), 
+        [](const cv::Rect& a, const cv::Rect& b) { return a.area() < b.area(); });
 
     return frame(largestPlate);
 }
@@ -67,8 +65,11 @@ void haarCascadeThread(const std::string& rtsp_url, int cameraIndex, cv::Cascade
 
     while (!stop_thread) {
         cv::Mat frame;
-        cap >> frame;
-        if (frame.empty()) continue;
+        if (!cap.read(frame)) {
+            std::cerr << "Error reading frame from camera " << cameraIndex << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            continue;
+        }
 
         {
             std::lock_guard<std::mutex> lock(frame_mutex[cameraIndex]);
@@ -90,8 +91,6 @@ void haarCascadeThread(const std::string& rtsp_url, int cameraIndex, cv::Cascade
 
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-
-    cap.release();
 }
 
 void saveFramesPeriodically(int cameraIndex) {
@@ -100,8 +99,13 @@ void saveFramesPeriodically(int cameraIndex) {
         if (enable_saving) {
             std::lock_guard<std::mutex> lock(frame_mutex[cameraIndex]);
             if (!raw_frames[cameraIndex].empty() && !masked_frames[cameraIndex].empty()) {
-                std::string raw_filepath = "raw_cam" + std::to_string(cameraIndex) + ".jpg";
-                std::string masked_filepath = "masked_cam" + std::to_string(cameraIndex) + ".jpg";
+                std::time_t now = std::time(nullptr);
+                std::stringstream ss;
+                ss << std::put_time(std::localtime(&now), "%Y%m%d%H%M%S");
+                std::string timestamp = ss.str();
+
+                std::string raw_filepath = "raw_cam" + std::to_string(cameraIndex) + "_" + timestamp + ".jpg";
+                std::string masked_filepath = "masked_cam" + std::to_string(cameraIndex) + "_" + timestamp + ".jpg";
 
                 cv::imwrite(raw_filepath, raw_frames[cameraIndex]);
                 cv::imwrite(masked_filepath, masked_frames[cameraIndex]);
@@ -112,7 +116,9 @@ void saveFramesPeriodically(int cameraIndex) {
 
 void saveDetectedFrames(int cameraIndex, const std::string& raw_image, const std::string& masked_image) {
     std::unique_lock<std::mutex> lock(frame_mutex[cameraIndex]);
-    frame_cv[cameraIndex].wait(lock, [&]{ return new_frame[cameraIndex]; });
+    if (!frame_cv[cameraIndex].wait_for(lock, std::chrono::seconds(5), [&]{ return new_frame[cameraIndex]; })) {
+        return;
+    }
 
     if (enable_saving) {
         cv::Mat raw_frame = raw_frames[cameraIndex];
@@ -121,10 +127,9 @@ void saveDetectedFrames(int cameraIndex, const std::string& raw_image, const std
         lock.unlock();
 
         std::time_t now = std::time(nullptr);
-        std::tm* local_time = std::localtime(&now);
-
-        char timestamp[20];
-        std::strftime(timestamp, sizeof(timestamp), "%Y%m%d%H%M%S", local_time);
+        std::stringstream ss;
+        ss << std::put_time(std::localtime(&now), "%Y%m%d%H%M%S");
+        std::string timestamp = ss.str();
 
         std::string raw_filepath = raw_image + "_" + timestamp + ".jpg";
         std::string masked_filepath = masked_image + "_" + timestamp + ".jpg";
@@ -146,7 +151,9 @@ void openALPRThread(int cameraIndex, const std::string& country, const std::stri
 
     while (!stop_thread) {
         std::unique_lock<std::mutex> lock(frame_mutex[cameraIndex]);
-        frame_cv[cameraIndex].wait(lock, [&]{ return new_frame[cameraIndex]; });
+        if (!frame_cv[cameraIndex].wait_for(lock, std::chrono::seconds(5), [&]{ return new_frame[cameraIndex]; })) {
+            continue;
+        }
 
         cv::Mat plateRegion = frames[cameraIndex];
         new_frame[cameraIndex] = false;
@@ -174,7 +181,6 @@ void openALPRThread(int cameraIndex, const std::string& country, const std::stri
             std::cout << "Camera " << cameraIndex << " Plate: " << best_plate 
                       << " Confidence: " << max_confidence << std::endl;
 
-            // Uyutma işlemi
             std::this_thread::sleep_for(std::chrono::seconds(30));
             max_confidence = -std::numeric_limits<double>::infinity();
         }
@@ -182,15 +188,18 @@ void openALPRThread(int cameraIndex, const std::string& country, const std::stri
 }
 
 void handleUserInput() {
-    char input;
+    std::string input;
     while (!stop_thread) {
-        std::cin >> input;
-        if (input == 'e') {
+        std::getline(std::cin, input);
+        if (input == "e") {
             enable_saving = true;
             std::cout << "Saving enabled." << std::endl;
-        } else if (input == 'd') {
+        } else if (input == "d") {
             enable_saving = false;
             std::cout << "Saving disabled." << std::endl;
+        } else if (input == "q") {
+            stop_thread = true;
+            std::cout << "Stopping all threads..." << std::endl;
         }
     }
 }
@@ -203,7 +212,7 @@ int main(int argc, char* argv[]) {
 
     enable_saving = (argv[1][0] == 'e');
 
-    std::string country = "au"; // Avustralya
+    std::string country = "au";
     std::string configFile = "openalpr.conf";
     std::string runtimeDataDir = "/usr/local/share/openalpr/runtime_data";
     std::string cascadePath = "plate.xml";
@@ -238,6 +247,5 @@ int main(int argc, char* argv[]) {
     }
 
     userInputThread.join();
-    cv::destroyAllWindows();
     return 0;
 }
