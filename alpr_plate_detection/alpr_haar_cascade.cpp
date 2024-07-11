@@ -1,3 +1,6 @@
+//g++ -std=c++11 -o plate_recognizer alpr_haar_cascade.cpp -lopencv_core -lopencv_imgcodecs -lopencv_objdetect -lopencv_highgui -lopencv_videoio -lalpr -lpthread -lcurl -ljsoncpp
+
+
 #include <alpr.h>
 #include <opencv2/opencv.hpp>
 #include <opencv2/objdetect.hpp>
@@ -10,6 +13,9 @@
 #include <chrono>
 #include <ctime>
 #include <iomanip>
+#include "../helper/Helper.h"
+#include "../webapi/webapi.h"
+#include "../thirdparty/json/json/json.h"
 
 std::atomic<bool> stop_thread(false);
 std::atomic<bool> enable_saving(false);
@@ -139,6 +145,79 @@ void saveDetectedFrames(int cameraIndex, const std::string& raw_image, const std
     }
 }
 
+void sendToWebAPI(const std::string& plateStr, const cv::Mat& orgImage, const cv::Mat& plateImg, int camera_id) {
+    std::string auth_token;
+    if (WebAPI::getAuthToken(auth_token)) {
+        std::string vehicleImageBase64, numberPlateImageBase64;
+        
+        // Encode vehicle image
+        {
+            std::vector<uchar> buf;
+            cv::imencode(".jpg", orgImage, buf);
+            auto base64_png = reinterpret_cast<const unsigned char*>(buf.data());
+            vehicleImageBase64 = std::move("image/jpeg;base64," + Helper::base64_encode(base64_png, buf.size()));
+        }
+
+        // Encode number plate image
+        {
+            std::vector<uchar> buf;
+            cv::imencode(".jpg", plateImg, buf);
+            auto base64_png = reinterpret_cast<const unsigned char*>(buf.data());
+            numberPlateImageBase64 = std::move("image/jpeg;base64," + Helper::base64_encode(base64_png, buf.size()));
+        }
+
+        auto dt = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());
+
+        std::string station_id = "";
+        uint16_t logtype = 2;
+        
+        if (camera_id == 1) {
+            logtype = 1;
+            station_id = "28038"; // giriş id
+        } else if (camera_id == 2) {
+            station_id = "28039"; // çıkış id
+            logtype = 2;
+        } else {
+            logtype = 2; // default
+        }
+
+        Json::Value jReq;
+        jReq["carAccessDateTime"] = std::to_string((int)(dt.time_since_epoch().count() / 1000) - 3600);
+        jReq["systemTime"] = std::to_string((int)(dt.time_since_epoch().count() / 1000) - 3600);
+        jReq["alprsLogType"] = unsigned(logtype);
+        jReq["vehicleImageFileName"] = "img7.jpeg";
+        jReq["numberPlateImageFileName"] = "img7-plate.jpeg";
+        jReq["carRegistrationNumber"] = plateStr;
+        jReq["numberPlateCharacters"] = plateStr;
+        jReq["carDetailId"] = unsigned(1);
+        jReq["alprsSystemId"] = "";
+        jReq["alprsStationId"] = station_id;
+        jReq["alprsSystemSerialNumber"] = "";
+        jReq["username"] = "alpdade";
+        jReq["password"] = "alpdade";
+        jReq["geographicalAreaNameCode"] = "AU";
+        jReq["vehicleMake"] = ""; //"Porsche"
+        jReq["vehicleModel"] = ""; //"cayenne";
+        jReq["alprsContrastValue"] = "60";
+        jReq["numberPlateRecognitionScore"] = "90";
+        jReq["vehicleImageFile"] = vehicleImageBase64;
+        jReq["numberPlateImageFile"] = numberPlateImageBase64;
+        jReq["alprsFK"] = "string";
+        jReq["bookingId"] = unsigned(1);
+
+        bool success = WebAPI::uploadPlateLog(auth_token, std::move(jReq.toStyledString()));
+
+        if (success) {
+            std::cout << std::endl << "\033[33m  ** The plate has been sent to the server. **    \033[0m" << std::endl;
+        } else {
+            std::cerr << std::endl << "\033[33m  ** Error: The plate hasn't been sent to the server! **    \033[0m" << std::endl;
+        }
+    } else {
+        std::cerr << "Authentication failed.\n";
+        std::cerr << "WebAPI: The Auth Token hasn't been gotten from the server.\n";
+    }
+}
+
 void openALPRThread(int cameraIndex, const std::string& country, const std::string& configFile, const std::string& runtimeDataDir) {
     alpr::Alpr openalpr(country, configFile, runtimeDataDir);
     if (!openalpr.isLoaded()) {
@@ -156,6 +235,7 @@ void openALPRThread(int cameraIndex, const std::string& country, const std::stri
         }
 
         cv::Mat plateRegion = frames[cameraIndex];
+        cv::Mat originalFrame = raw_frames[cameraIndex];
         new_frame[cameraIndex] = false;
         lock.unlock();
 
@@ -174,6 +254,8 @@ void openALPRThread(int cameraIndex, const std::string& country, const std::stri
                 std::string masked_filepath = "detected_masked_cam" + std::to_string(cameraIndex);
 
                 std::thread(saveDetectedFrames, cameraIndex, raw_filepath, masked_filepath).detach();
+                
+                sendToWebAPI(best_plate, originalFrame, plateRegion, cameraIndex);
             }
         }
 
