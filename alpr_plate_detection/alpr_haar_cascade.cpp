@@ -1,6 +1,3 @@
-//g++ -std=c++11 -o plate_recognizer alpr_haar_cascade.cpp -lopencv_core -lopencv_imgcodecs -lopencv_objdetect -lopencv_highgui -lopencv_videoio -lalpr -lpthread -lcurl -ljsoncpp
-
-
 #include <alpr.h>
 #include <opencv2/opencv.hpp>
 #include <opencv2/objdetect.hpp>
@@ -13,9 +10,9 @@
 #include <chrono>
 #include <ctime>
 #include <iomanip>
-#include "../helper/Helper.h"
-#include "../webapi/webapi.h"
-#include "../thirdparty/json/json/json.h"
+#include "./helper/Helper.h"
+#include "./webapi/webapi.h"
+#include "./thirdparty/json/json/json.h"
 
 std::atomic<bool> stop_thread(false);
 std::atomic<bool> enable_saving(false);
@@ -62,10 +59,10 @@ cv::Mat extractPlateRegion(const cv::Mat& frame, cv::CascadeClassifier& plate_ca
     return frame(largestPlate);
 }
 
-void haarCascadeThread(const std::string& rtsp_url, int cameraIndex, cv::CascadeClassifier& plate_cascade) {
-    cv::VideoCapture cap(rtsp_url);
+void cameraThread(int cameraIndex, cv::CascadeClassifier& plate_cascade) {
+    cv::VideoCapture cap(cameraIndex);
     if (!cap.isOpened()) {
-        std::cerr << "Error opening video stream: " << rtsp_url << std::endl;
+        std::cerr << "Error opening video stream from camera " << cameraIndex << std::endl;
         return;
     }
 
@@ -294,7 +291,7 @@ int main(int argc, char* argv[]) {
 
     enable_saving = (argv[1][0] == 'e');
 
-    std::string country = "au";
+    std::string country = "au"; // Specify the country code for your plates
     std::string configFile = "openalpr.conf";
     std::string runtimeDataDir = "/usr/local/share/openalpr/runtime_data";
     std::string cascadePath = "plate.xml";
@@ -305,15 +302,13 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    std::string rtsp_url1 = "rtsp://admin:alpDADE2@10.54.41.88:554";
-    std::string rtsp_url2 = "rtsp://admin:alpDADE2@10.54.41.89:554";
-
-    std::thread haarThreads[2];
+    std::thread cameraThreads[2];
     std::thread alprThreads[2];
     std::thread saveThreads[2];
 
-    haarThreads[0] = std::thread(haarCascadeThread, rtsp_url1, 0, std::ref(plate_cascade));
-    haarThreads[1] = std::thread(haarCascadeThread, rtsp_url2, 1, std::ref(plate_cascade));
+    // Assuming you have two cameras. If you have only one, you can adjust accordingly.
+    cameraThreads[0] = std::thread(cameraThread, 0, std::ref(plate_cascade));
+    cameraThreads[1] = std::thread(cameraThread, 1, std::ref(plate_cascade));
     alprThreads[0] = std::thread(openALPRThread, 0, country, configFile, runtimeDataDir);
     alprThreads[1] = std::thread(openALPRThread, 1, country, configFile, runtimeDataDir);
 
@@ -323,7 +318,7 @@ int main(int argc, char* argv[]) {
     std::thread userInputThread(handleUserInput);
 
     for (int i = 0; i < 2; ++i) {
-        haarThreads[i].join();
+        cameraThreads[i].join();
         alprThreads[i].join();
         saveThreads[i].join();
     }
