@@ -10,3 +10,6 @@
 
 !flow + pipes.jpg
 */libtorch
+
+# Ignore all build directories
+**/build/
