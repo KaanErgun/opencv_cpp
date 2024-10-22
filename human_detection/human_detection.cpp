@@ -6,9 +6,9 @@
 #include <iostream>
 
 int main() {
-    cv::VideoCapture cap("rtsp://192.168.0.21/live/1"); // Enter your RTSP URL here
+    cv::VideoCapture cap(0); // Use USB camera, usually index 0
     if (!cap.isOpened()) {
-        std::cerr << "Video could not be opened." << std::endl;
+        std::cerr << "USB camera could not be opened." << std::endl;
         return -1;
     }
 
@@ -19,26 +19,29 @@ int main() {
 
     while (true) {
         cv::Mat frame;
-        cap >> frame; // Get the frame
+        cap >> frame; // Capture frame from USB camera
         if (frame.empty()) break; // If no frame is captured, exit the loop
 
         std::vector<cv::Rect> detections;
         std::vector<double> foundWeights;
 
+        // Detect people in the frame
         hog.detectMultiScale(frame, detections, foundWeights);
 
         for (size_t i = 0; i < detections.size(); i++) {
             cv::Rect &d = detections[i];
-            cv::rectangle(frame, d, cv::Scalar(0, 255, 0), 3); // Draw a green rectangle
+            // Draw green rectangle around detected person
+            cv::rectangle(frame, d, cv::Scalar(0, 255, 0), 3);
             std::cout << "Detected person, weight: " << foundWeights[i] << std::endl;
         }
 
         cv::imshow("Human Detection", frame);
 
+        // Exit loop if any key is pressed
         if (cv::waitKey(30) >= 0) break;
     }
 
-    cap.release();
+    cap.release(); // Release the camera resource
     cv::destroyAllWindows();
     return 0;
 }
