@@ -1,0 +1,5 @@
+{
+  "source": "0",
+  "detector": "hog",
+  "conf_threshold": 0.0
+}

@@ -1,16 +1,33 @@
-# Ignore specific file extensions
+# --- Models & weights (fetched via scripts/download_models.sh, never committed) ---
 *.names
 *.cfg
 *.weights
+*.onnx
+models/*
+!models/README.md
+
+# --- Build artifacts & compiled binaries ---
 *.out
+**/build/
+# Extensionless Mach-O executables historically slipped past *.out; keep them out.
+# (Contributors must build into build/, which is ignored above.)
+
+# --- Captured / generated media ---
 *.mp4
+*.avi
 *.jpg
 *.jpeg
-*.DS_Store
+frame_*.jpg
+temp_car_image.jpg
+output_480p.avi
 
-!flow + pipes.jpg
+# --- Third-party heavy deps ---
 */libtorch
 
-# Ignore all build directories
-**/build/
+# --- Editor / OS ---
+*.DS_Store
 **/.vscode/
+
+# --- Docs images kept intentionally ---
+!docs/img/*.png
+!docs/img/*.jpg

@@ -1,0 +1,9 @@
+{
+  "source": "clip.mp4",
+  "detector": "yolo",
+  "model": "models/yolov8n.onnx",
+  "class_names_path": "models/coco.names",
+  "class_filter": [19],
+  "conf_threshold": 0.5,
+  "output_path": "cow_output.mp4"
+}
