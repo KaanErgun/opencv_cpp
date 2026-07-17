@@ -1,0 +1,63 @@
+# CLAUDE.md — opencv_cpp (v2.0)
+
+## Mutlak Kurallar (kullanıcı talimatı)
+
+- **ASLA GitHub Actions / CI workflow kullanma.** `.github/workflows/` oluşturma. Doğrulama yerelde `./scripts/check.sh` ile yapılır. Bu kural kesindir.
+- **Commit mesajlarına ASLA `Co-Authored-By` / Claude / AI imzası ekleme.** PR gövdelerine de "Generated with Claude Code" ekleme. Commit yalnızca içerikle biter.
+- **Her geliştirme adımını `dev-log.md` içine detaylı yaz** (ne yapıldı, hangi dosyalar, neden, doğrulama sonucu). Yeni girdiler dosyanın sonuna eklenir, en yeni en altta.
+- Kod yorumları ve commit mesajları İngilizce; kullanıcıyla iletişim ve dev-log Türkçe.
+- **RTSP URL'si, şifre, API anahtarı ASLA kaynak koda yazılmaz.** Config dosyası / ortam değişkeni kullan. `check.sh` bunu grep ile denetler.
+- Çalıştırılabilir dosya, `.weights`/`.onnx` modeller ve yakalanan görüntüler commit edilmez (`.gitignore` bunları engeller).
+
+## Proje Özeti
+
+C++/OpenCV görüntü işleme toolkit'i: paylaşılan `core/` kütüphanesi + config-güdümlü 4 uygulama. YOLOv8/v11 ONNX tespiti, klasik HOG insan tespiti, RTSP/webcam/dosya yakalama (otomatik reconnect), çok-kamera sayımı için IoU takibi. Eski 10 tek-dosya demosu v2.0'da silindi; `pre-v2` git tag'inde yaşıyor. Bkz. `V2_UPGRADE_PLAN.md`, `docs/DECISIONS.md`.
+
+## Mimari
+
+```
+core/                       vision_core statik kütüphanesi (tüm ortak mantık)
+  include/vision/*.hpp      IDetector, Detection, YoloDetector, HogPeopleDetector,
+                            VideoSource/SourceSpec, Annotator, IouTracker/Track, AppConfig
+  src/*.cpp
+apps/
+  detect/     app_detect        genel tespit (yolo|hog), --config
+  multicam/   app_multicam      3x3 ROI grid + IoU tracker + sayım
+  rtsp_record/app_rtsp_record   izle/kaydet, fps/boyut kaynaktan
+  alpr/       app_alpr          ONNX plaka tespiti + temiz kırpım
+configs/                    her eski demo = bir JSON config
+models/                     gitignored; download_models.sh doldurur
+scripts/                    download_models.sh, check.sh, purge_history.sh
+tests/                      Catch2 (SourceSpec parse, IouTracker)
+cmake/                      CompilerWarnings.cmake
+```
+
+Veri akışı: `VideoSource` → (opsiyonel ROI mask) → `IDetector::detect` → `IouTracker` (multicam) → `Annotator` → GUI/VideoWriter.
+
+## Build & Doğrulama
+
+```bash
+./scripts/download_models.sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./scripts/check.sh          # build + test + format + credential scan (CI yok)
+```
+
+- **Bu makinede özel durum:** arm64 host ama Homebrew OpenCV **5.0 x86_64**. CMake'e `-DCMAKE_OSX_ARCHITECTURES=x86_64` ve `-DOpenCV_DIR=/usr/local/Cellar/opencv/5.0.0/lib/cmake/opencv5` verilir. `check.sh` bunu otomatik ekler.
+- `find_package(OpenCV)` sürüm **pin'lenmez** (5.x, `4.8` isteğini uyumsuz sayar); minimum sürüm CMake'te elle kontrol edilir.
+
+## Önemli Tasarım Notları (dokunmadan önce oku)
+
+- **YoloDetector yalnız ONNX YOLOv8/v11:** çıktı `[1, 4+nc, 8400]` → transpose → satır `[cx,cy,w,h, sınıf skorları]` (objectness YOK, sigmoid YOK). Letterbox ön işleme + koordinat geri-eşleme yapılır; NMS `cv::dnn::NMSBoxesBatched`; kutular frame'e clamp'lenir. Eski modüllerin bozuk decode/NMS kodu buraya doğru şekilde toplandı.
+- **VideoSource** canlı kaynakta (webcam/RTSP) tek boş karede programı öldürmez; backoff'lu reconnect yapar. `SourceSpec::parse`: "0"→webcam, "rtsp://"→akış, diğer→dosya.
+- **IouTracker** SORT-benzeri greedy IoU eşleştirme; eski `car_detection_dual`'daki carStatus out-of-bounds UB'yi ortadan kaldırdı. Eigen/Kalman yok.
+- **COCO sınıf id'leri:** person=0, car=2, cow=**19** (eski kod yanlışlıkla 20=fil kullanıyordu; config'lerde düzeltildi).
+- **HOG** OpenCV 5.x'te `xobjdetect` contrib modülünde; `hog_detector.hpp` sürüme göre doğru header'ı seçer, CMake `opencv_xobjdetect`'i koşullu bağlar.
+- **app_alpr:** OpenALPR ve residents.net.au yükleyici emekli (bkz. DECISIONS K4/K5). Plaka kırpımı overlay ÖNCESİ temiz frame'den, bounds'a clamp'li alınır.
+
+## Konvansiyonlar
+
+- C++17, `-Wall -Wextra` (+ shadow/cast-align/sign-compare). `WARNINGS_AS_ERRORS` opsiyonu ilk temizlik turundan sonra açılabilir.
+- clang-format: Google tabanlı, IndentWidth 4, ColumnLimit 90. `clang-format -i` ile uygula.
+- Yeni ortak mantık `core/`'a; app'ler ince kalır (~100 satır).
+- Çıkış kodları `EXIT_SUCCESS`/`EXIT_FAILURE`; GUI kapatma tuşu ESC veya q.

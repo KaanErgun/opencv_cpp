@@ -1,0 +1,14 @@
+{
+  "source": "0",
+  "detector": "yolo",
+  "model": "models/yolov8n.onnx",
+  "class_names_path": "models/coco.names",
+  "input_size": 640,
+  "conf_threshold": 0.25,
+  "nms_threshold": 0.45,
+  "class_filter": [],
+  "backend": "cpu",
+  "headless": false,
+  "output_path": "",
+  "max_frames": 0
+}

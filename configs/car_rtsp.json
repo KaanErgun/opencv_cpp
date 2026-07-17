@@ -1,0 +1,8 @@
+{
+  "source": "rtsp://USER:PASS@CAMERA_IP:554/live/0",
+  "detector": "yolo",
+  "model": "models/yolov8n.onnx",
+  "class_names_path": "models/coco.names",
+  "class_filter": [2],
+  "conf_threshold": 0.5
+}
