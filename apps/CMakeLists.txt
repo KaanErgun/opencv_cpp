@@ -27,3 +27,9 @@ target_link_libraries(app_multicam PRIVATE nlohmann_json::nlohmann_json)
 add_vision_app(image_ops)
 add_vision_app(filters)
 add_vision_app(edges)
+
+add_vision_app(contours)
+link_cv_module_if_present(app_contours opencv_geometry)
+
+add_vision_app(color_track)
+link_cv_module_if_present(app_color_track opencv_geometry)
