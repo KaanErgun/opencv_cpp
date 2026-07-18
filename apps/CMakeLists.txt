@@ -33,3 +33,9 @@ link_cv_module_if_present(app_contours opencv_geometry)
 
 add_vision_app(color_track)
 link_cv_module_if_present(app_color_track opencv_geometry)
+
+add_vision_app(face_detect)
+link_cv_module_if_present(app_face_detect opencv_xobjdetect)
+
+add_vision_app(motion_detect)
+link_cv_module_if_present(app_motion_detect opencv_geometry)
