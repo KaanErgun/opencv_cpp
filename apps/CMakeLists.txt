@@ -39,3 +39,8 @@ link_cv_module_if_present(app_face_detect opencv_xobjdetect)
 
 add_vision_app(motion_detect)
 link_cv_module_if_present(app_motion_detect opencv_geometry)
+
+add_vision_app(optical_flow)
+link_cv_module_if_present(app_optical_flow opencv_features)
+
+add_vision_app(qr_scanner)
