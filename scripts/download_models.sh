@@ -44,16 +44,29 @@ if [[ "$ONLY" == "all" || "$ONLY" == "coco" ]]; then
 fi
 
 # Generic YOLOv8n ONNX (person/car/cow/... detection).
-# Ultralytics models are AGPL-3.0; the model file is NOT committed. Export your
-# own with: `yolo export model=yolov8n.pt format=onnx imgsz=640 opset=12`
-# then place the result at models/yolov8n.onnx, or set a mirror URL below.
+# Ultralytics models are AGPL-3.0; the model file is NOT committed. We export it
+# locally via a throwaway virtualenv (needs python3.12 + internet). Static 640
+# input, opset 12 — what OpenCV's DNN importer wants.
 if [[ "$ONLY" == "all" || "$ONLY" == "yolov8n" ]]; then
   echo "YOLOv8n ONNX:"
   if [[ -f "$DEST/yolov8n.onnx" ]]; then
     echo "  ok (present): $DEST/yolov8n.onnx"
+  elif command -v python3.12 >/dev/null 2>&1; then
+    echo "  exporting via ultralytics (python3.12 virtualenv)..."
+    VENV="$(mktemp -d)/venv"
+    python3.12 -m venv "$VENV"
+    "$VENV/bin/pip" install --quiet --upgrade pip
+    # torch here is built against numpy 1.x, so pin numpy<2 for the export.
+    "$VENV/bin/pip" install --quiet ultralytics onnx onnxslim "numpy<2"
+    ( cd "$VENV" && "$VENV/bin/python" -c \
+      "from ultralytics import YOLO; YOLO('yolov8n.pt').export(format='onnx', imgsz=640, opset=12, dynamic=False, simplify=True)" )
+    mv "$VENV/yolov8n.onnx" "$DEST/yolov8n.onnx"
+    rm -rf "$(dirname "$VENV")"
+    echo "  exported: $DEST/yolov8n.onnx"
   else
-    echo "  !! models/yolov8n.onnx missing."
-    echo "     Export it (Ultralytics, AGPL-3.0):"
+    echo "  !! models/yolov8n.onnx missing and python3.12 not found."
+    echo "     Export it manually (Ultralytics, AGPL-3.0):"
+    echo "       pip install ultralytics"
     echo "       yolo export model=yolov8n.pt format=onnx imgsz=640 opset=12"
     echo "     and place it at models/yolov8n.onnx"
   fi

@@ -47,3 +47,37 @@ Her geliştirme adımı bu dosyanın sonuna eklenir; en yeni girdi en altta.
 - `./scripts/check.sh` uçtan uca **temiz** geçti (build + test + format + credential scan).
 
 **Bekleyen (kullanıcı aksiyonu):** `purge_history.sh` çalıştırma + force-push; sızan şifrelerin rotasyonu; `models/yolov8n.onnx` export'u; `best.onnx` için GitHub Release asset + `MODEL_BEST_URL`.
+
+---
+
+## 2026-07-18 — Modellerin indirilmesi/export'u
+
+**Ne yapıldı:** `yolov8n.onnx` (genel COCO tespiti) ultralytics ile export edildi ve `models/`'e kondu. `best.onnx` ve `coco.names` zaten yerindeydi.
+
+**Süreç:** Python 3.14 (sistem varsayılanı) numpy'yi derleyemedi (prebuilt wheel yok, C++ hatası); Python 3.12 venv'i ile çözüldü. torch numpy 1.x'e derli olduğundan `numpy<2` pinlendi. Export: `imgsz=640, opset=12, dynamic=False, simplify=True` → 12.3 MB (sha256 404e7eea…). `download_models.sh` artık `yolov8n.onnx` yoksa bunu python3.12 venv'inde otomatik yapıyor.
+
+**Doğrulama:** `yolov8n.onnx` YoloDetector + `coco.names` ile `bus.jpg` üzerinde test edildi → 4 person (%88) + 1 bus (%84), doğru kutu koordinatları. Model + core detektör COCO ile tam uyumlu.
+
+**Not:** Modeller gitignored (repoya girmiyor); `download_models.sh` yeniden üretiyor.
+
+---
+
+## 2026-07-18 — Eğitsel örnek kütüphanesi: 10 yeni klasik-CV uygulaması
+
+**Ne yapıldı:** OpenCV öğrenenler için kademeli 10 yeni uygulama eklendi (`apps/`): image_ops (temel işlemler galerisi), filters (trackbar'lı filtre oyun alanı), edges (Canny/Sobel), contours (eşikleme+kontur+moment), color_track (HSV renk takibi), face_detect (Haar yüz+göz), motion_detect (MOG2 arka plan çıkarma), optical_flow (Lucas-Kanade), object_track (CSRT/KCF/MIL), qr_scanner (QR encode+decode). Hepsi bol İngilizce eğitici yorumlu, `--headless --max-frames` ile test edilebilir, ESC/q ile çıkar. Toplam 14 uygulama.
+
+**Altyapı:** `vision/cli.hpp` core'a eklendi (4 mevcut app'teki kopyala-yapıştır argValue temizlendi). CMake: `video` bileşeni + koşullu `tracking`/`geometry`/`features`/`xobjdetect` bağlama (`link_cv_module_if_present`). OpenCV 5.x modül bölünmesi keşfedildi ve CLAUDE.md'ye işlendi: contourArea/moments→geometry, goodFeaturesToTrack→features, CascadeClassifier→xobjdetect.
+
+**Süreç (çok-ajanlı):** 10 yazma ajanı (paralel, dosya başına bir ajan) → derleme (ilk seferde temiz) → 10 headless smoke test (sentetik hareketli-kare videosu + QR round-trip; CSRT beklenen konumu ±4px buldu) → 10 gözden geçirici + 15 çürütme-doğrulayıcı (ikisi OpenCV Cocoa kaynağını okudu, biri binary ile repro yaptı) → 12 doğrulanmış bulgu → 9 düzeltme ajanı → regresyon + düzeltme doğrulaması.
+
+**Doğrulanan önemli düzeltmeler:**
+- Core `VideoSource::read()`: canlı kaynakta sonsuz reconnect GUI thread'ini kilitliyordu → ~30 sn bütçeyle sınırlandı, sonra false döner.
+- optical_flow (yüksek): özelliksiz görüntüde çıkılamaz döngü → seed dalı artık waitKey/max-frames'i atlamıyor (siyah videoda frames=20 doğrulandı).
+- object_track: sınır dışı --roi CSRT'de kriptik crash → kırpma + net hata mesajı.
+- contours: THRESH_BINARY yorumu ters senaryoyu anlatıyordu → yorum düzeltildi + --invert/‘i' eklendi (koyu-nesne/parlak-zemin testinde 1→2 doğru kontur).
+- color_track: hue sarmalaması (kırmızı) desteklendi (hmin>hmax → iki inRange OR'u).
+- motion_detect: SIGINT MP4'ü bozuyordu → sinyal yakalayıcı + writer.release(); reconnect sonrası çözünürlük değişimi → yazarken resize.
+- qr_scanner: kararsız decode stdout spam'i → 15 kare ardışık kaçırma eşiği.
+- Tüm GUI döngülerine waitKey & 0xFF maskesi + WND_PROP_VISIBLE kontrolü (Linux GTK/Qt pencere kapatma; macOS Cocoa'da kapatma düğmesi zaten yok — doğrulayıcı OpenCV kaynağından kanıtladı).
+
+**Doğrulama:** 14 app + testler temiz derlendi; 9/9 unit test; 8 regresyon smoke testi birebir aynı; `./scripts/check.sh` uçtan uca geçti. README (öğrenme yolu tablosu) ve CLAUDE.md güncellendi.
