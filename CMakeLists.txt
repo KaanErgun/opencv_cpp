@@ -20,6 +20,16 @@ if(OpenCV_VERSION VERSION_LESS 4.8)
   message(FATAL_ERROR "OpenCV >= 4.8 required, found ${OpenCV_VERSION}")
 endif()
 
+# The single-object trackers (CSRT/KCF) live in the tracking contrib module,
+# which plain Linux libopencv-dev may lack. app_object_track is skipped then.
+find_package(OpenCV QUIET COMPONENTS tracking)
+if(TARGET opencv_tracking)
+  set(VISION_HAVE_TRACKING TRUE)
+else()
+  set(VISION_HAVE_TRACKING FALSE)
+  message(STATUS "opencv_tracking not found — app_object_track will be skipped")
+endif()
+
 # HOGDescriptor lives in the xobjdetect (contrib) module on OpenCV 5.x. Detect
 # it so the HOG backend can be gated; it's optional and off if unavailable.
 set(VISION_HAVE_HOG FALSE)
