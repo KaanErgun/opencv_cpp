@@ -2,8 +2,8 @@
   "source": "0",
   "detector": "yolo",
   "model": "models/best.onnx",
-  "class_names": ["Araba", "Plaka"],
-  "class_filter": [1],
+  "class_names": ["Plaka", "Araba"],
+  "class_filter": [0],
   "conf_threshold": 0.3,
   "input_size": 640
 }

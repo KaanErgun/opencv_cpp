@@ -41,8 +41,11 @@ int main(int argc, char** argv) {
             std::filesystem::create_directories(saveDir);
         }
 
-        // The plate class id in best.onnx (classes: {"Araba"=0, "Plaka"=1}).
-        const int plateClassId = cfg.classFilter.empty() ? 1 : cfg.classFilter.front();
+        // The plate class id in best.onnx. Verified against a real frame: the
+        // model emits class 0 for the plate and class 1 for the whole car (the
+        // opposite of the retired module's assumed label order). Configs pin
+        // this via class_filter: [0]; default to 0 if unset.
+        const int plateClassId = cfg.classFilter.empty() ? 0 : cfg.classFilter.front();
 
         vision::YoloDetector detector(cfg.toYoloConfig());
         vision::Annotator annotator;

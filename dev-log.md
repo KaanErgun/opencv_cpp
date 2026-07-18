@@ -81,3 +81,19 @@ Her geliştirme adımı bu dosyanın sonuna eklenir; en yeni girdi en altta.
 - Tüm GUI döngülerine waitKey & 0xFF maskesi + WND_PROP_VISIBLE kontrolü (Linux GTK/Qt pencere kapatma; macOS Cocoa'da kapatma düğmesi zaten yok — doğrulayıcı OpenCV kaynağından kanıtladı).
 
 **Doğrulama:** 14 app + testler temiz derlendi; 9/9 unit test; 8 regresyon smoke testi birebir aynı; `./scripts/check.sh` uçtan uca geçti. README (öğrenme yolu tablosu) ve CLAUDE.md güncellendi.
+
+---
+
+## 2026-07-19 — app_alpr uçtan uca testi + sınıf sırası hatası düzeltmesi
+
+**Ne yapıldı:** `app_alpr` uygulaması ilk kez uçtan uca test edildi (önceki v2.0 turunda yalnız `best.onnx` core detektörle smoke edilmişti, app binary'si değil). Test görselleri (`car.png`, `pk2.png`) git geçmişinden (`097977c`) geri alındı.
+
+**Bulunan hata:** `app_alpr --config configs/alpr.json --source car.png` başta 594 KB'lık bir "plaka" kırpımı kaydetti — plaka için çok büyük. Filtresiz tespit dökümü kutuların şeklini gösterdi: class 0 = 110x36 (en-boy 3:1, aracın altında) = plaka; class 1 = 747x685 = araç. İki kutuyu kırpıp gözle bakınca kesinleşti: **class 0 = plaka ("YIM-97B"), class 1 = araç**. Config'ler eski (doğrulanmamış) `yolov8_car_plates_detection` etiket sırasını (`{"Araba"=0, "Plaka"=1}`) kopyaladığından TERSti; `class_filter: [1]` plakayı değil arabayı tutuyordu.
+
+**Düzeltme:**
+- `configs/alpr.json` + `configs/car_plates_v8.json`: `class_names` → `["Plaka", "Araba"]` (0=plaka, 1=araç); alpr filtresi `class_filter: [0]`.
+- `apps/alpr/main.cpp`: `plateClassId` varsayılanı 1→0; yorum gerçek doğrulamayla güncellendi.
+
+**Doğrulama:** Düzeltme sonrası `app_alpr` car.png'de 9 KB'lık kırpım kaydetti; gözle bakıldı → sadece plaka "YIM-97B". Not: `pk2.png` (1724x430, zaten yakın plan plaka) 0 kaydediyor çünkü model tam-kare plaka closeup'ında class 0'ı güvenle bulamıyor (0.27 < 0.3 eşik) — model dağıtım-dışı girdi sınırlaması, bizim hatamız değil. `check.sh` temiz geçti.
+
+**Model kapsamı notu:** v2.0 "ALPR" = plaka TESPİTİ + temiz kırpım; OpenALPR emekli edildiği için karakter OCR'ı YOK (bkz. DECISIONS K4). Plaka metnini okumak isteyen kullanıcı kırpımları bir OCR'a besler.
