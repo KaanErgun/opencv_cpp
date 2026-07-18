@@ -56,16 +56,21 @@ bool VideoSource::read(cv::Mat& frame) {
         return false;
     }
 
-    // Live source: reconnect with exponential backoff, forever.
+    // Live source: reconnect with exponential backoff, but only within a time
+    // budget. Retrying forever would block the caller — usually a GUI thread
+    // whose cv::waitKey pump stops running — with no way to quit the app.
     int delay = reconnectDelayMs_;
-    while (true) {
+    int spentMs = 0;
+    while (spentMs < reconnectBudgetMs_) {
         cap_.release();
         std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+        spentMs += delay;
         if (open() && cap_.read(frame) && !frame.empty()) {
             return true;
         }
         delay = std::min(delay * 2, maxReconnectDelayMs_);
     }
+    return false;  // stream considered gone; caller decides what to do
 }
 
 double VideoSource::fps() const {

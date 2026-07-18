@@ -16,6 +16,7 @@
 #include <opencv2/videoio.hpp>
 #include <string>
 
+#include "vision/cli.hpp"
 #include "vision/video_source.hpp"
 
 namespace {
@@ -23,16 +24,9 @@ namespace {
 std::atomic<bool> g_stop{false};
 void onSignal(int) { g_stop.store(true); }
 
-std::string argValue(int argc, char** argv, const std::string& key) {
-    for (int i = 1; i < argc - 1; ++i) {
-        if (key == argv[i]) {
-            return argv[i + 1];
-        }
-    }
-    return {};
-}
-
 }  // namespace
+
+using vision::cli::argValue;
 
 int main(int argc, char** argv) {
     const std::string source = argValue(argc, argv, "--source");

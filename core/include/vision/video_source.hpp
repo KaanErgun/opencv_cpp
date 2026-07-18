@@ -24,8 +24,10 @@ class VideoSource {
    public:
     explicit VideoSource(const SourceSpec& spec);
 
-    // Reads the next frame. Returns false only when a non-live source is
-    // exhausted (end of file). For live sources it keeps trying to reconnect.
+    // Reads the next frame. Returns false when a non-live source is exhausted
+    // (end of file), or when a live source stayed dead for the whole reconnect
+    // budget (~30 s of backed-off retries) — retrying forever would freeze the
+    // caller, which is typically a GUI thread.
     bool read(cv::Mat& frame);
 
     double fps() const;
@@ -40,6 +42,7 @@ class VideoSource {
     cv::VideoCapture cap_;
     int reconnectDelayMs_ = 500;
     int maxReconnectDelayMs_ = 5000;
+    int reconnectBudgetMs_ = 30000;
 };
 
 }  // namespace vision

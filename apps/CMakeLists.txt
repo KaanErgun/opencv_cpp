@@ -4,6 +4,17 @@ function(add_vision_app name)
   set_target_properties(app_${name} PROPERTIES OUTPUT_NAME app_${name})
 endfunction()
 
+# Links an OpenCV module target only when this install provides it. OpenCV 5.x
+# split imgproc: contourArea/moments -> geometry, goodFeaturesToTrack -> features,
+# CascadeClassifier -> xobjdetect. On 4.x those all live in the base components
+# already linked through vision_core, so the extra target simply doesn't exist.
+function(link_cv_module_if_present app module)
+  if(TARGET ${module})
+    target_link_libraries(${app} PRIVATE ${module})
+  endif()
+endfunction()
+
+# --- DNN / pipeline apps ------------------------------------------------------
 add_vision_app(detect)
 add_vision_app(rtsp_record)
 add_vision_app(multicam)

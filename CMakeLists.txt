@@ -15,7 +15,7 @@ endif()
 # rejected as incompatible even though the DNN APIs we use are source-compatible.
 # Enforce the floor manually instead.
 find_package(OpenCV REQUIRED
-  COMPONENTS core imgproc imgcodecs highgui videoio dnn objdetect)
+  COMPONENTS core imgproc imgcodecs highgui videoio dnn objdetect video)
 if(OpenCV_VERSION VERSION_LESS 4.8)
   message(FATAL_ERROR "OpenCV >= 4.8 required, found ${OpenCV_VERSION}")
 endif()
