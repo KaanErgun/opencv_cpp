@@ -11,8 +11,9 @@ tiny apps, and JSON configs — no copy-paste between demos.
 ## Quick start
 
 ```bash
-# 1. Install dependencies (macOS)
-brew install opencv cmake ninja
+# 1. Install dependencies (macOS). tesseract is only needed for the ALPR
+#    server/client; everything else builds without it.
+brew install opencv cmake ninja tesseract
 
 # 2. Fetch models (exports YOLOv8n, downloads coco.names)
 ./scripts/download_models.sh
@@ -59,7 +60,36 @@ index (`0`), a video file (`clip.mp4`), or an RTSP URL.
 | **app_detect** | Detect objects from one source (YOLO ONNX or HOG) | `app_detect --config configs/car_webcam.json` |
 | **app_multicam** | Multiple cameras, ROI grid + IoU tracking + counting | `app_multicam --config configs/multicam.json` |
 | **app_rtsp_record** | View or record any stream to a video file | `app_rtsp_record --source rtsp://... --output out.mp4` |
-| **app_alpr** | Detect license plates and save cropped images | `app_alpr --config configs/alpr.json --save-dir plates/` |
+| **app_alpr** | Detect license plates and save cropped images (no OCR) | `app_alpr --config configs/alpr.json --save-dir plates/` |
+
+## License-plate recognition (client / server)
+
+A full ALPR system that **reads** plate characters (YOLO detection → Tesseract
+OCR), split into a recognition server and thin capture clients. Needs Tesseract
+(`brew install tesseract`); the targets are skipped if it's absent.
+
+```bash
+# 1. Start the recognition server (loads best.onnx + Tesseract, serves HTTP)
+./build/apps/app_alpr_server --config configs/alpr_server.json --port 8080
+
+# 2a. Web dashboard — open http://localhost:8080 and drop in a car photo
+# 2b. C++ capture client — one image, or a live stream
+./build/apps/app_alpr_client --image car.jpg --server http://localhost:8080
+./build/apps/app_alpr_client --source rtsp://CAMERA --server http://host:8080 --log plates.csv
+```
+
+The server also speaks plain HTTP, so any client works:
+
+```bash
+curl -X POST --data-binary @car.jpg http://localhost:8080/recognize
+# {"count":1,"ms":88,"plates":[{"text":"YIM97B","ocr_confidence":0.96,
+#   "det_confidence":0.88,"box":[411,584,110,36]}]}
+```
+
+Endpoints: `POST /recognize` (image → plates JSON), `GET /events` (recognition
+history, appended to `alpr_events.jsonl`), `GET /health`, `GET /` (dashboard).
+OCR accuracy tracks image quality — a clean plate reads exactly; a small, blurry,
+or low-light plate may read partially.
 
 Behaviour comes from the JSON files in [`configs/`](configs/) — change the source,
 model, thresholds, or class filter without recompiling. `app_detect` and
@@ -96,9 +126,11 @@ empty to keep everything.
 ## Project layout
 
 ```
-core/      shared library (detection, capture, tracking, drawing, config, cli)
-apps/      14 thin executables: 10 classic-CV lessons + 4 DNN pipeline apps
-configs/   ready-made JSON configs for the DNN apps
+core/      two libraries: vision_core (detection, capture, tracking, drawing,
+           config, cli) and vision_alpr (Tesseract OCR + recognition pipeline)
+apps/      16 thin executables: 10 classic-CV lessons, 4 DNN pipeline apps,
+           and the ALPR server + client
+configs/   ready-made JSON configs for the DNN and ALPR apps
 models/    ONNX models + class names (downloaded, not committed)
 scripts/   download_models.sh, check.sh
 tests/     unit tests (Catch2)

@@ -97,3 +97,27 @@ Her geliştirme adımı bu dosyanın sonuna eklenir; en yeni girdi en altta.
 **Doğrulama:** Düzeltme sonrası `app_alpr` car.png'de 9 KB'lık kırpım kaydetti; gözle bakıldı → sadece plaka "YIM-97B". Not: `pk2.png` (1724x430, zaten yakın plan plaka) 0 kaydediyor çünkü model tam-kare plaka closeup'ında class 0'ı güvenle bulamıyor (0.27 < 0.3 eşik) — model dağıtım-dışı girdi sınırlaması, bizim hatamız değil. `check.sh` temiz geçti.
 
 **Model kapsamı notu:** v2.0 "ALPR" = plaka TESPİTİ + temiz kırpım; OpenALPR emekli edildiği için karakter OCR'ı YOK (bkz. DECISIONS K4). Plaka metnini okumak isteyen kullanıcı kırpımları bir OCR'a besler.
+
+---
+
+## 2026-07-19 — Tam ALPR sistemi: OCR + ayrı sunucu/istemci
+
+**Ne yapıldı:** app_alpr yalnız tespit+kırpım yapıyordu; artık gerçek plaka TANIMA (karakter okuma) var, istemci-sunucu mimarisiyle. Kararlar (kullanıcı): OCR=Tesseract, istemci=hem C++ hem web panosu, sunucu JSON-lines olay logu tutar (bkz. DECISIONS K10).
+
+**Yeni core (`vision_alpr` — Tesseract'ı 14 app'ten ayrı tutmak için ayrı lib):**
+- `PlateOcr` (Tesseract pImpl): ön-işleme = gri → ~4x büyütme (upscaleHeight 140) → CLAHE → GaussianBlur → Otsu (polarite düzeltmeli) → beyaz kenar. Güven: MeanTextConf() bazı whitelist ayarlarında 0 döndüğü için ResultIterator ile per-symbol güven ortalaması alınır. Karakter beyaz-listesi + PSM 7.
+- `AlprPipeline`: tespit (YoloDetector, class 0 = plaka) → temiz kırpım → OCR. Thread-safe (iç mutex; ne DNN ne Tesseract reentrant). padding varsayılanı 0 (best.onnx kutuları sıkı; padding Otsu'yu bozup okumayı düşürüyordu — test edildi).
+
+**Sunucu (`app_alpr_server`, cpp-httplib):** `POST /recognize` (ham gövde veya multipart) → plaka JSON; `GET /events?limit=N` (alpr_events.jsonl'den geçmiş); `GET /health`; `GET /` gömülü web panosu (sürükle-bırak yükleme, canvas'a kutu çizimi, olay tablosu). Pipeline + Tesseract bir kez yüklenir; olay logu mutex'li append.
+
+**İstemci (`app_alpr_client`):** görüntü işlemez — VideoSource ile yakalar, JPEG'e kodlar, sunucuya POST eder, dönen plakaları overlay/CSV yapar. `--image` tek-atış, akış modu `--interval` ile throttle'lı. Böylece çok sayıda ince istemci tek sunucuyu paylaşabilir.
+
+**Bağımlılıklar:** Tesseract 5.5.2 (pkg-config, `VISION_WITH_OCR` opsiyonu — yoksa server/client atlanır, repo etkilenmez). cpp-httplib v0.18.3 (FetchContent). Makinede Tesseract zaten kuruluydu, x86_64 (OpenCV ile uyumlu).
+
+**OCR kalibrasyonu (gerçek testler):** Varyantlar denendi (PSM 7/8/13 × gri/Otsu/CLAHE/bilateral). En iyi: CLAHE+Otsu+PSM7. Sonuçlar:
+- Temiz sentetik plaka "34ABC123" → **34ABC123** conf 0.99 (pipeline'ın doğruluğunu kanıtlar).
+- Zor gerçek dashcam plakası (gece, stop lambası parıltısı, açılı; gerçek "YIM-97B") → **EYIM976** conf 0.96 (YIM97 çekirdeği doğru; baştaki E plaka çerçevesi, B→6/8 karışması). Görsel doğrulama: kırpım gerçekten "YIM-97B" plakası.
+
+**Uçtan uca doğrulama:** Sunucu 8080'de başlatıldı. `curl POST car.png` → 88ms'de EYIM976. C++ istemci `--image` → 66ms EYIM976. multipart (`curl -F`) → EYIM976. `/events` iki kaydı zaman damgalı gösterdi. Pano (5770 byte HTML) sunuluyor. Akış modu (car.png'den mp4 klip) 30 kareyi işledi; mp4 sıkıştırması minik plakayı OCR eşiğinin altına düşürdü → tespit hâlâ çalışıyor (det 0.87) ama OCR boş — beklenen kalite sınırı, dürüstçe belgelendi.
+
+**Doğrulama:** 16 app + testler temiz derlendi (`-Wall -Wextra`). `./scripts/check.sh` uçtan uca geçti (build + 9 test + format + credential). README/CLAUDE.md/DECISIONS güncellendi. `alpr_events.jsonl` gitignore'landı.

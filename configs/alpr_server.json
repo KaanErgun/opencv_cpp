@@ -1,0 +1,18 @@
+{
+  "host": "0.0.0.0",
+  "port": 8080,
+  "model": "models/best.onnx",
+  "class_names": ["Plaka", "Araba"],
+  "class_filter": [0],
+  "plate_class_id": 0,
+  "conf_threshold": 0.3,
+  "input_size": 640,
+  "min_ocr_confidence": 0.3,
+  "events_path": "alpr_events.jsonl",
+  "ocr": {
+    "whitelist": "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+    "psm": 7,
+    "upscale_height": 140,
+    "min_chars": 4
+  }
+}

@@ -9,6 +9,7 @@ v2.0 planlamasında (Faz 0) tanımlanan kararlar. Onay tarihi: 2026-07-17.
 | K3 | Model formatı | **Yalnız ONNX** (YOLOv8/v11) | Darknet v3/v7 emekli; 237 MB `.weights` indirme altyapısı kurulmaz. |
 | K4 | OpenALPR | **Emekli** | `apps/alpr` = ONNX plaka tespiti + temiz kırpım. OpenALPR/webapi/helper silinir. |
 | K5 | residents.net.au yükleyici | **Silinir** | Üçüncü tarafa ait ölü entegrasyon. |
+| K10 | Tam ALPR (OCR + istemci-sunucu) | **Tesseract + REST** | 2026-07-19 eklendi. OpenALPR emekli KALIR (K4); OCR temiz bir `vision_alpr` pipeline'ında Tesseract ile yapılır. Sunucu (cpp-httplib REST + web panosu + JSON-lines olay logu) ayrı, C++ yakalama istemcisi ayrı. Ayrıntı `dev-log.md` 2026-07-19. |
 | K6 | JSON kütüphanesi | **nlohmann_json (FetchContent)** | Vendored JsonCpp ve `json.hpp` silinir. |
 | K7 | Minimum OpenCV | **4.8** | Tek yerde (kök CMake) zorlanır. |
 | K8 | CI | **YOK** | Yalnız yerel `scripts/check.sh`. |

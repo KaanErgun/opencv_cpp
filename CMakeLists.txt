@@ -51,6 +51,31 @@ FetchContent_Declare(
   GIT_TAG v3.11.3)
 FetchContent_MakeAvailable(nlohmann_json)
 
+# cpp-httplib: header-only HTTP server + client, used by the ALPR server/client.
+FetchContent_Declare(
+  httplib
+  GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+  GIT_TAG v0.18.3)
+FetchContent_MakeAvailable(httplib)
+
+# Tesseract OCR (via pkg-config) powers the plate-recognition pipeline. It is a
+# system dependency; when absent the ALPR server/client and the OCR library are
+# simply not built and the rest of the repo is unaffected.
+option(VISION_WITH_OCR "Build the Tesseract-backed ALPR server/client" ON)
+set(VISION_HAVE_OCR FALSE)
+if(VISION_WITH_OCR)
+  find_package(PkgConfig QUIET)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(TESSERACT IMPORTED_TARGET tesseract lept)
+    if(TESSERACT_FOUND)
+      set(VISION_HAVE_OCR TRUE)
+    else()
+      message(STATUS "tesseract/lept not found via pkg-config — ALPR OCR "
+                     "targets skipped (install with: brew install tesseract)")
+    endif()
+  endif()
+endif()
+
 # --- Shared warning flags ----------------------------------------------------
 include(cmake/CompilerWarnings.cmake)
 

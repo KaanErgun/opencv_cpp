@@ -49,3 +49,18 @@ if(VISION_HAVE_TRACKING)
   add_vision_app(object_track)
   target_link_libraries(app_object_track PRIVATE opencv_tracking)
 endif()
+
+# --- Client/server ALPR system (needs Tesseract; see VISION_HAVE_OCR) ---------
+if(VISION_HAVE_OCR)
+  add_executable(app_alpr_server alpr_server/main.cpp)
+  target_link_libraries(app_alpr_server PRIVATE
+    vision_alpr vision_core project_warnings
+    httplib::httplib nlohmann_json::nlohmann_json)
+  target_include_directories(app_alpr_server PRIVATE alpr_server)
+
+  # The client does no vision work — just capture + HTTP + draw.
+  add_executable(app_alpr_client alpr_client/main.cpp)
+  target_link_libraries(app_alpr_client PRIVATE
+    vision_core project_warnings
+    httplib::httplib nlohmann_json::nlohmann_json)
+endif()

@@ -34,3 +34,6 @@ output_480p.avi
 
 # Internal planning doc — not published
 V2_UPGRADE_PLAN.md
+
+# ALPR runtime event log
+alpr_events.jsonl

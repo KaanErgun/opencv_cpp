@@ -16,21 +16,23 @@ C++/OpenCV görüntü işleme toolkit'i: paylaşılan `core/` kütüphanesi + co
 ## Mimari
 
 ```
-core/                       vision_core statik kütüphanesi (tüm ortak mantık)
-  include/vision/*.hpp      IDetector, Detection, YoloDetector, HogPeopleDetector,
-                            VideoSource/SourceSpec, Annotator, IouTracker/Track,
-                            AppConfig, cli.hpp (argValue/argOr/argInt/hasFlag)
+core/                       iki kütüphane:
+  include/vision/*.hpp      vision_core: IDetector, Detection, YoloDetector,
+                            HogPeopleDetector, VideoSource/SourceSpec, Annotator,
+                            IouTracker/Track, AppConfig, cli.hpp
+                            vision_alpr (yalnız VISION_HAVE_OCR): PlateOcr
+                            (Tesseract), AlprPipeline/PlateResult
   src/*.cpp
-apps/                       14 uygulama, iki grup:
+apps/                       16 uygulama, üç grup:
   # DNN / pipeline
-  detect/     app_detect        genel tespit (yolo|hog), --config
-  multicam/   app_multicam      3x3 ROI grid + IoU tracker + sayım
-  rtsp_record/app_rtsp_record   izle/kaydet, fps/boyut kaynaktan
-  alpr/       app_alpr          ONNX plaka tespiti + temiz kırpım
+  detect/  multicam/  rtsp_record/  alpr/   (app_alpr = tespit + kırpım, OCR yok)
+  # İstemci-sunucu ALPR (yalnız Tesseract varsa)
+  alpr_server/ app_alpr_server   HTTP: /recognize /health /events / (pano)
+  alpr_client/ app_alpr_client   VideoSource -> POST -> overlay/log
   # Eğitsel klasik CV (öğrenme sırasıyla; hepsi --headless --max-frames destekler)
   image_ops/ filters/ edges/ contours/ color_track/
   face_detect/ motion_detect/ optical_flow/ object_track/ qr_scanner/
-configs/                    DNN app'leri için JSON config'ler
+configs/                    DNN + ALPR app'leri için JSON config'ler
 models/                     gitignored; download_models.sh doldurur
 scripts/                    download_models.sh, check.sh, purge_history.sh
 tests/                      Catch2 (SourceSpec parse, IouTracker)
@@ -58,7 +60,8 @@ cmake --build build
 - **IouTracker** SORT-benzeri greedy IoU eşleştirme; eski `car_detection_dual`'daki carStatus out-of-bounds UB'yi ortadan kaldırdı. Eigen/Kalman yok.
 - **COCO sınıf id'leri:** person=0, car=2, cow=**19** (eski kod yanlışlıkla 20=fil kullanıyordu; config'lerde düzeltildi).
 - **OpenCV 5.x modül bölünmesi (4.x'te hepsi imgproc/objdetect'teydi):** `contourArea`/`boundingRect`/`moments` → `geometry`; `goodFeaturesToTrack` → `features`; `CascadeClassifier` ve HOG → `xobjdetect`. `apps/CMakeLists.txt`'teki `link_cv_module_if_present` yardımcı fonksiyonu bu hedefleri yalnız mevcutsa bağlar (4.x uyumluluğu); `hog_detector.hpp` ve `face_detect` sürüme göre doğru header'ı seçer.
-- **app_alpr:** OpenALPR ve residents.net.au yükleyici emekli (bkz. DECISIONS K4/K5). Plaka kırpımı overlay ÖNCESİ temiz frame'den, bounds'a clamp'li alınır.
+- **app_alpr:** OpenALPR ve residents.net.au yükleyici emekli (bkz. DECISIONS K4/K5). Plaka kırpımı overlay ÖNCESİ temiz frame'den, bounds'a clamp'li alınır. Karakter OKUMA (OCR) burada YOK — o iş vision_alpr + istemci-sunucudadır.
+- **İstemci-sunucu ALPR (K10):** `vision_alpr` = `PlateOcr` (Tesseract pImpl, CLAHE+Otsu ön-işleme, iterator-tabanlı güven) + `AlprPipeline` (tespit→kırpım→OCR, thread-safe mutex). Ayrı `vision_alpr` lib'i ki Tesseract 14 diğer app'e sızmasın. `app_alpr_server` cpp-httplib ile REST + gömülü web panosu + `alpr_events.jsonl` (JSON-lines). `app_alpr_client` görüntü işlemez; sadece yakalar→POST→çizer. Deps: Tesseract (pkg-config, `VISION_WITH_OCR`), cpp-httplib (FetchContent). OCR doğruluğu girdi kalitesine bağlı (temiz plaka birebir; küçük/bulanık plaka kısmi).
 
 ## Konvansiyonlar
 
