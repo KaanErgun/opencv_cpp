@@ -1,6 +1,6 @@
 # Tasarım Kararları (v2.0)
 
-`V2_UPGRADE_PLAN.md` Faz 0'da tanımlanan kararlar. Onay tarihi: 2026-07-17.
+v2.0 planlamasında (Faz 0) tanımlanan kararlar. Onay tarihi: 2026-07-17.
 
 | # | Konu | Karar | Not |
 |---|---|---|---|

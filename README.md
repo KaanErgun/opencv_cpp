@@ -1,86 +1,121 @@
-# opencv_cpp — v2.0
+# opencv_cpp
 
-A small C++/OpenCV computer-vision toolkit built around a shared core library
-and a handful of thin, config-driven apps. YOLOv8/v11 ONNX object detection, a
-classic HOG pedestrian backend, RTSP/webcam/file capture with automatic
-reconnect, and IoU tracking for multi-camera counting.
+A small, modern C++/OpenCV computer-vision toolkit. One shared library, four
+tiny apps, and JSON configs — no copy-paste between demos.
 
-> v2.0 replaced the previous collection of 10 copy-pasted single-file demos
-> with one `core/` library + four apps. The old modules live in the `pre-v2`
-> git tag. See [`V2_UPGRADE_PLAN.md`](V2_UPGRADE_PLAN.md) for the full story and
-> [`docs/DECISIONS.md`](docs/DECISIONS.md) for the design decisions.
+- **Object detection** with YOLOv8/v11 ONNX models (or a classic HOG people detector)
+- **Any input**: webcam, video file, or RTSP stream — with automatic reconnect
+- **Multi-camera** ROI counting with lightweight IoU tracking
+- **License plates**: detect + save clean crops
 
-## Apps
-
-| Target | What it does | Replaces |
-|--------|--------------|----------|
-| `app_detect` | Generic single-source detection (YOLO or HOG), config-driven | yolov3/v7/v8 car/cow/human demos, HOG demo |
-| `app_multicam` | Multi-camera 3×3 ROI grid + IoU tracking + counting | car_detection_dual*, multi_thread_rtsp |
-| `app_rtsp_record` | View or record any source; correct fps/size, clean SIGINT | simple_rtsp |
-| `app_alpr` | Plate detection (ONNX) + clean crop saving | alpr_plate_detection, yolov3_plate_recognition |
-
-Each old demo is now a JSON file in [`configs/`](configs/) — behaviour changes
-without recompiling.
-
-## Prerequisites
-
-- **macOS:** `brew install opencv cmake ninja clang-format`
-- **Linux:** `sudo apt install libopencv-dev cmake ninja-build clang-format clang-tidy`
-
-Needs OpenCV ≥ 4.8 (for `NMSBoxesBatched`). OpenCV 5.x also works. `nlohmann_json`
-and `Catch2` are fetched automatically by CMake.
-
-> The HOG backend uses `HOGDescriptor`, which moved to the `xobjdetect` contrib
-> module in OpenCV 5.x. On OpenCV 4.x it ships with core `objdetect`. CMake
-> detects this automatically.
-
-## Build
+## Quick start
 
 ```bash
-./scripts/download_models.sh                       # fetch ONNX models + coco.names
+# 1. Install dependencies (macOS)
+brew install opencv cmake ninja
+
+# 2. Fetch models (exports YOLOv8n, downloads coco.names)
+./scripts/download_models.sh
+
+# 3. Build
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
+
+# 4. Run — detect people on your webcam
+./build/apps/app_detect --config configs/human_yolo.json
 ```
 
-On an Apple-Silicon Mac with an x86_64 Homebrew OpenCV, add
-`-DCMAKE_OSX_ARCHITECTURES=x86_64` and `-DOpenCV_DIR=$(brew --prefix opencv)/lib/cmake/opencv5`.
+Press **ESC** or **q** to quit any window.
 
-## Run
+> On Linux: `sudo apt install libopencv-dev cmake ninja-build`.
+> On an Apple-Silicon Mac with an x86_64 Homebrew OpenCV, add
+> `-DCMAKE_OSX_ARCHITECTURES=x86_64 -DOpenCV_DIR=$(brew --prefix opencv)/lib/cmake/opencv5`
+> to the `cmake` configure step.
 
-```bash
-./build/apps/app_detect  --config configs/car_webcam.json
-./build/apps/app_detect  --config configs/human_hog.json
-./build/apps/app_alpr    --config configs/alpr.json --save-dir plates/
-./build/apps/app_multicam --config configs/multicam.json
-./build/apps/app_rtsp_record --source rtsp://USER:PASS@CAMERA_IP/stream --output out.mp4 --seconds 60
-```
+## Learning path (classic CV)
 
-Every app takes `--config <file.json>`; `app_detect`/`app_alpr` also accept
-`--source` and `--headless`. Press **ESC** or **q** to quit a GUI window.
+Ten small, heavily-commented apps that build on each other — start at the top.
+Every app prints its flags when run without arguments, quits on **ESC**/**q**,
+and supports `--headless --max-frames N` for scripted runs. A source is a webcam
+index (`0`), a video file (`clip.mp4`), or an RTSP URL.
+
+| # | App | You learn | Try it |
+|---|-----|-----------|--------|
+| 1 | **app_image_ops** | imread/imwrite, Mat basics, resize, rotate, blur, Canny, histograms | `app_image_ops --image photo.jpg --show` |
+| 2 | **app_filters** | blur family (box/gaussian/median/bilateral), morphology — with live trackbars | `app_filters --source 0` |
+| 3 | **app_edges** | Sobel gradients, Canny hysteresis, threshold tuning | `app_edges --source 0` |
+| 4 | **app_contours** | thresholding, findContours, areas, moments/centroids | `app_contours --source 0` |
+| 5 | **app_color_track** | HSV colour space, inRange segmentation, blob tracking | `app_color_track --source 0` |
+| 6 | **app_face_detect** | Haar cascades, detectMultiScale parameters, ROI search | `app_face_detect --source 0` |
+| 7 | **app_motion_detect** | MOG2 background subtraction, shadow handling | `app_motion_detect --source 0` |
+| 8 | **app_optical_flow** | Shi-Tomasi corners, pyramidal Lucas-Kanade flow | `app_optical_flow --source 0` |
+| 9 | **app_object_track** | single-object trackers (CSRT/KCF/MIL), init/update lifecycle | `app_object_track --source 0` |
+| 10 | **app_qr_scanner** | QR encode + detect + decode, perspective quads | `app_qr_scanner --encode "hi" && app_qr_scanner --image qr.png` |
+
+## Pipeline apps (DNN / YOLO)
+
+| App | What it does | Example |
+|-----|--------------|---------|
+| **app_detect** | Detect objects from one source (YOLO ONNX or HOG) | `app_detect --config configs/car_webcam.json` |
+| **app_multicam** | Multiple cameras, ROI grid + IoU tracking + counting | `app_multicam --config configs/multicam.json` |
+| **app_rtsp_record** | View or record any stream to a video file | `app_rtsp_record --source rtsp://... --output out.mp4` |
+| **app_alpr** | Detect license plates and save cropped images | `app_alpr --config configs/alpr.json --save-dir plates/` |
+
+Behaviour comes from the JSON files in [`configs/`](configs/) — change the source,
+model, thresholds, or class filter without recompiling. `app_detect` and
+`app_alpr` also accept `--source <spec>` and `--headless` on the command line.
 
 ## Models
 
-Model files are **never committed** (gitignored) and fetched into `models/` by
-`scripts/download_models.sh`. See [`models/README.md`](models/README.md) for the
-expected layout and how to export/host each one. YOLOv8 must be exported with a
-static `640×640` input and `opset=12`.
+Model files are fetched into [`models/`](models/) and are never committed. Run
+`./scripts/download_models.sh` to get them:
 
-## Verification
+- **yolov8n.onnx** — general COCO detection (person, car, cow, …); exported from
+  Ultralytics
+- **coco.names** — class labels
+- **best.onnx** — a custom car + plate model used by `app_alpr`
 
-There is **no CI** (project rule). The single local quality gate is:
+See [`models/README.md`](models/README.md) for details and how to provide your own.
 
-```bash
-./scripts/check.sh    # build + unit tests + clang-format + credential scan
+## Configuration example
+
+```json
+{
+  "source": "0",
+  "detector": "yolo",
+  "model": "models/yolov8n.onnx",
+  "class_names_path": "models/coco.names",
+  "class_filter": [2],
+  "conf_threshold": 0.5
+}
 ```
 
-## Security
+`class_filter` keeps only the given COCO class ids (here `2` = car). Leave it
+empty to keep everything.
 
-Never commit RTSP URLs, camera passwords, or API keys. Use config files with
-placeholder/env-referenced secrets. The pre-v2 history contained real leaked
-credentials; [`scripts/purge_history.sh`](scripts/purge_history.sh) rewrites
-history to remove them (must be run manually — it force-pushes).
+## Project layout
+
+```
+core/      shared library (detection, capture, tracking, drawing, config, cli)
+apps/      14 thin executables: 10 classic-CV lessons + 4 DNN pipeline apps
+configs/   ready-made JSON configs for the DNN apps
+models/    ONNX models + class names (downloaded, not committed)
+scripts/   download_models.sh, check.sh
+tests/     unit tests (Catch2)
+```
+
+## Development
+
+There's no CI — run the local quality gate before pushing:
+
+```bash
+./scripts/check.sh    # build + tests + formatting + credential scan
+```
+
+Never hardcode RTSP URLs, camera passwords, or API keys — use config files with
+placeholder or env-referenced values.
 
 ## License
 
-[MIT](LICENSE). Bundled/third-party models carry their own licenses (Ultralytics
-YOLO is AGPL-3.0 — its weights are not distributed here).
+[MIT](LICENSE). Third-party models carry their own licenses (Ultralytics YOLO is
+AGPL-3.0; its weights are not distributed here).

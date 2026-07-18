@@ -31,3 +31,6 @@ output_480p.avi
 # --- Docs images kept intentionally ---
 !docs/img/*.png
 !docs/img/*.jpg
+
+# Internal planning doc — not published
+V2_UPGRADE_PLAN.md

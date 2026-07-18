@@ -11,21 +11,26 @@
 
 ## Proje Özeti
 
-C++/OpenCV görüntü işleme toolkit'i: paylaşılan `core/` kütüphanesi + config-güdümlü 4 uygulama. YOLOv8/v11 ONNX tespiti, klasik HOG insan tespiti, RTSP/webcam/dosya yakalama (otomatik reconnect), çok-kamera sayımı için IoU takibi. Eski 10 tek-dosya demosu v2.0'da silindi; `pre-v2` git tag'inde yaşıyor. Bkz. `V2_UPGRADE_PLAN.md`, `docs/DECISIONS.md`.
+C++/OpenCV görüntü işleme toolkit'i: paylaşılan `core/` kütüphanesi + config-güdümlü 4 uygulama. YOLOv8/v11 ONNX tespiti, klasik HOG insan tespiti, RTSP/webcam/dosya yakalama (otomatik reconnect), çok-kamera sayımı için IoU takibi. Eski 10 tek-dosya demosu v2.0'da silindi; `pre-v2` git tag'inde yaşıyor. Tasarım kararları için bkz. `docs/DECISIONS.md`.
 
 ## Mimari
 
 ```
 core/                       vision_core statik kütüphanesi (tüm ortak mantık)
   include/vision/*.hpp      IDetector, Detection, YoloDetector, HogPeopleDetector,
-                            VideoSource/SourceSpec, Annotator, IouTracker/Track, AppConfig
+                            VideoSource/SourceSpec, Annotator, IouTracker/Track,
+                            AppConfig, cli.hpp (argValue/argOr/argInt/hasFlag)
   src/*.cpp
-apps/
+apps/                       14 uygulama, iki grup:
+  # DNN / pipeline
   detect/     app_detect        genel tespit (yolo|hog), --config
   multicam/   app_multicam      3x3 ROI grid + IoU tracker + sayım
   rtsp_record/app_rtsp_record   izle/kaydet, fps/boyut kaynaktan
   alpr/       app_alpr          ONNX plaka tespiti + temiz kırpım
-configs/                    her eski demo = bir JSON config
+  # Eğitsel klasik CV (öğrenme sırasıyla; hepsi --headless --max-frames destekler)
+  image_ops/ filters/ edges/ contours/ color_track/
+  face_detect/ motion_detect/ optical_flow/ object_track/ qr_scanner/
+configs/                    DNN app'leri için JSON config'ler
 models/                     gitignored; download_models.sh doldurur
 scripts/                    download_models.sh, check.sh, purge_history.sh
 tests/                      Catch2 (SourceSpec parse, IouTracker)
@@ -52,7 +57,7 @@ cmake --build build
 - **VideoSource** canlı kaynakta (webcam/RTSP) tek boş karede programı öldürmez; backoff'lu reconnect yapar. `SourceSpec::parse`: "0"→webcam, "rtsp://"→akış, diğer→dosya.
 - **IouTracker** SORT-benzeri greedy IoU eşleştirme; eski `car_detection_dual`'daki carStatus out-of-bounds UB'yi ortadan kaldırdı. Eigen/Kalman yok.
 - **COCO sınıf id'leri:** person=0, car=2, cow=**19** (eski kod yanlışlıkla 20=fil kullanıyordu; config'lerde düzeltildi).
-- **HOG** OpenCV 5.x'te `xobjdetect` contrib modülünde; `hog_detector.hpp` sürüme göre doğru header'ı seçer, CMake `opencv_xobjdetect`'i koşullu bağlar.
+- **OpenCV 5.x modül bölünmesi (4.x'te hepsi imgproc/objdetect'teydi):** `contourArea`/`boundingRect`/`moments` → `geometry`; `goodFeaturesToTrack` → `features`; `CascadeClassifier` ve HOG → `xobjdetect`. `apps/CMakeLists.txt`'teki `link_cv_module_if_present` yardımcı fonksiyonu bu hedefleri yalnız mevcutsa bağlar (4.x uyumluluğu); `hog_detector.hpp` ve `face_detect` sürüme göre doğru header'ı seçer.
 - **app_alpr:** OpenALPR ve residents.net.au yükleyici emekli (bkz. DECISIONS K4/K5). Plaka kırpımı overlay ÖNCESİ temiz frame'den, bounds'a clamp'li alınır.
 
 ## Konvansiyonlar
