@@ -22,3 +22,8 @@ add_vision_app(alpr)
 
 # multicam parses raw JSON directly for its per-camera config.
 target_link_libraries(app_multicam PRIVATE nlohmann_json::nlohmann_json)
+
+# --- Educational / classic-CV apps --------------------------------------------
+add_vision_app(image_ops)
+add_vision_app(filters)
+add_vision_app(edges)
